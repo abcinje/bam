@@ -728,8 +728,8 @@ struct page_cache_t {
         pdt.n_ranges = 0;
         pdt.n_ranges_bits = (max_range == 1) ? 1 : std::log2(max_range);
         pdt.n_ranges_mask = max_range-1;
-        std::cout << "n_ranges_bits: " << std::dec << pdt.n_ranges_bits << std::endl;
-        std::cout << "n_ranges_mask: " << std::dec << pdt.n_ranges_mask << std::endl;
+        // std::cout << "n_ranges_bits: " << std::dec << pdt.n_ranges_bits << std::endl;
+        // std::cout << "n_ranges_mask: " << std::dec << pdt.n_ranges_mask << std::endl;
 
         pdt.page_size_log = std::log2(ps);
         ranges_buf = createBuffer(max_range * sizeof(pages_t), cudaDevice);
@@ -769,19 +769,17 @@ struct page_cache_t {
         uint64_t cache_size = ps*np;
         this->pages_dma = createDma(ctrl.ctrl, NVM_PAGE_ALIGN(cache_size, 1UL << 16), cudaDevice);
         pdt.base_addr = (uint8_t*) this->pages_dma.get()->vaddr;
-        std::cout << "pages_dma: " << std::hex << this->pages_dma.get()->vaddr << "\t" << this->pages_dma.get()->ioaddrs[0] << std::endl;
-        std::cout << "HEREN\n";
+        // std::cout << "pages_dma: " << std::hex << this->pages_dma.get()->vaddr << "\t" << this->pages_dma.get()->ioaddrs[0] << std::endl;
         const uint32_t uints_per_page = ctrl.ctrl->page_size / sizeof(uint64_t);
         if ((pdt.page_size > (ctrl.ctrl->page_size * uints_per_page)) || (np == 0) || (pdt.page_size < ctrl.ns.lba_data_size))
             throw error(string("page_cache_t: Can't have such page size or number of pages"));
         if (ps <= this->pages_dma.get()->page_size) {
-            std::cout << "Cond1\n";
             uint64_t how_many_in_one = ctrl.ctrl->page_size/ps;
             this->prp1_buf = createBuffer(np * sizeof(uint64_t), cudaDevice);
             pdt.prp1 = (uint64_t*) this->prp1_buf.get();
 
 
-            std::cout << np << " " << sizeof(uint64_t) << " " << how_many_in_one << " " << this->pages_dma.get()->n_ioaddrs <<std::endl;
+            // std::cout << np << " " << sizeof(uint64_t) << " " << how_many_in_one << " " << this->pages_dma.get()->n_ioaddrs <<std::endl;
             uint64_t* temp = new uint64_t[how_many_in_one *  this->pages_dma.get()->n_ioaddrs];
             std::memset(temp, 0, how_many_in_one *  this->pages_dma.get()->n_ioaddrs);
             if (temp == NULL)
@@ -870,8 +868,6 @@ struct page_cache_t {
         pc_buff = createBuffer(sizeof(page_cache_d_t), cudaDevice);
         d_pc_ptr = (page_cache_d_t*)pc_buff.get();
         cuda_err_chk(cudaMemcpy(d_pc_ptr, &pdt, sizeof(page_cache_d_t), cudaMemcpyHostToDevice));
-        std::cout << "Finish Making Page Cache\n";
-
     }
 
     ~page_cache_t() {
