@@ -403,8 +403,10 @@ uint32_t cq_poll(nvm_queue_t* cq, uint16_t search_cid, uint32_t* loc_ = NULL, ui
             if ((cid == search_cid) && (phase == search_phase)){
                  //if ((cpl_entry >> 17) != 0)
                  //     printf("NVM Error: %llx\tcid: %llu\n", (unsigned long long) (cpl_entry >> 17), (unsigned long long) search_cid);
-                *cq_head = head;
-                *loc_ = cur_head;
+                if (cq_head)
+                    *cq_head = head;
+                if (loc_)
+                    *loc_ = cur_head;
                 return loc;
             }
             if (phase != search_phase)
