@@ -2121,6 +2121,12 @@ inline __device__ void access_data(page_cache_d_t* pc, QueuePair* qp, const uint
 
 }
 
+#define COLOR_NONE "\033[0m"
+#define COLOR_CYAN "\033[0;36m"
+
+// #define NFS_DEBUG(fmt, args...)
+#define NFS_DEBUG(fmt, args...) printf(COLOR_CYAN fmt COLOR_NONE, ##args)
+
 #ifndef DEVFS_NVME_OPCODE_NFS
 #define DEVFS_NVME_OPCODE_NFS
 enum nvme_opcode_nfs {
@@ -2147,11 +2153,47 @@ enum nvme_opcode_nfs {
 };
 #endif
 
+__device__ uint32_t root_handle, file_handle;
+
 __global__
-void nfs_mount(QueuePair *qp, unsigned long *root)
+void nfs_lookup(QueuePair *qp, uint32_t *result, char *name, uint32_t name_len)
 {
     nvm_cmd_t cmd;
-    uint32_t res0;
+    uint32_t status, res0;
+
+    // Fill in command
+    uint16_t cid = get_cid(&qp->sq);
+    nvm_cmd_header(&cmd, cid, nvme_cmd_nfs_lookup, qp->nvmNamespace);
+    cmd.dword[2] = root_handle;
+    cmd.dword[3] = name_len;
+    cmd.dword[6] = 0;
+    cmd.dword[7] = 0;
+    cmd.dword[9] = 0;
+    cmd.dword[16] = 0;
+
+    char *cmd_str = (char *)&cmd.dword[10];
+    for (uint32_t i = 0; i < name_len; i++)
+        cmd_str[i] = name[i];
+    cmd_str[name_len] = 0;
+
+    // Process command
+    uint16_t sq_pos = sq_enqueue(&qp->sq, &cmd);
+    uint32_t cq_pos = cq_poll(&qp->cq, cid, NULL, NULL, &status, &res0);
+    cq_dequeue(&qp->cq, cq_pos, &qp->sq);
+    put_cid(&qp->sq, cid);
+
+    // Set file handle
+    *result = status;
+    file_handle = res0;
+
+    NFS_DEBUG("lookup: %s %u %u\n", name, *result, file_handle);
+}
+
+__global__
+void nfs_mount(QueuePair *qp, uint32_t *result)
+{
+    nvm_cmd_t cmd;
+    uint32_t status, res0;
 
     // Fill in command
     uint16_t cid = get_cid(&qp->sq);
@@ -2164,12 +2206,15 @@ void nfs_mount(QueuePair *qp, unsigned long *root)
 
     // Process command
     uint16_t sq_pos = sq_enqueue(&qp->sq, &cmd);
-    uint32_t cq_pos = cq_poll(&qp->cq, cid, NULL, NULL, &res0);
+    uint32_t cq_pos = cq_poll(&qp->cq, cid, NULL, NULL, &status, &res0);
     cq_dequeue(&qp->cq, cq_pos, &qp->sq);
     put_cid(&qp->sq, cid);
 
     // Set root handle
-    *root = (unsigned long)res0;
+    *result = status;
+    root_handle = res0;
+
+    NFS_DEBUG("mount: %u %u\n", *result, root_handle);
 }
 
 //#ifndef __CUDACC__
