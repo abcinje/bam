@@ -2121,7 +2121,56 @@ inline __device__ void access_data(page_cache_d_t* pc, QueuePair* qp, const uint
 
 }
 
+#ifndef DEVFS_NVME_OPCODE_NFS
+#define DEVFS_NVME_OPCODE_NFS
+enum nvme_opcode_nfs {
+    nvme_cmd_nfs_symlink    = 0x50,
+    nvme_cmd_nfs_write      = 0x51,
+    nvme_cmd_nfs_read       = 0x52,
+    nvme_cmd_nfs_lookup     = 0x54,
+    nvme_cmd_nfs_mkdir      = 0x55,
+    nvme_cmd_nfs_readdir    = 0x56,
+    nvme_cmd_nfs_access     = 0x58,
+    nvme_cmd_nfs_commit     = 0x59,
+    nvme_cmd_nfs_setattr    = 0x5D,
+    nvme_cmd_nfs_getattr    = 0x5E,
+    nvme_cmd_nfs_create     = 0x60,
+    nvme_cmd_nfs_rename     = 0x61,
+    nvme_cmd_nfs_fsstat     = 0x62,
+    nvme_cmd_nfs_remove     = 0x64,
+    nvme_cmd_nfs_rmdir      = 0x65,
+    nvme_cmd_nfs_readlink   = 0x66,
+    nvme_cmd_nfs_mnt        = 0x68,
+    nvme_cmd_nfs_fsinfo     = 0x6A,
+    nvme_cmd_nfs_umnt       = 0x6C,
+    nvme_cmd_nfs_pathconf   = 0x6E,
+};
+#endif
 
+__global__
+void nfs_mount(QueuePair *qp, unsigned long *root)
+{
+    nvm_cmd_t cmd;
+    uint32_t res0;
+
+    // Fill in command
+    uint16_t cid = get_cid(&qp->sq);
+    nvm_cmd_header(&cmd, cid, nvme_cmd_nfs_mnt, qp->nvmNamespace);
+    cmd.dword[2] = 0;
+    cmd.dword[10] = 0;
+    cmd.dword[11] = 0;
+    cmd.dword[12] = 0;
+    cmd.dword[13] = 0;
+
+    // Process command
+    uint16_t sq_pos = sq_enqueue(&qp->sq, &cmd);
+    uint32_t cq_pos = cq_poll(&qp->cq, cid, NULL, NULL, &res0);
+    cq_dequeue(&qp->cq, cq_pos, &qp->sq);
+    put_cid(&qp->sq, cid);
+
+    // Set root handle
+    *root = (unsigned long)res0;
+}
 
 //#ifndef __CUDACC__
 //#undef __device__

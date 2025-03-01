@@ -163,6 +163,12 @@ int main(int argc, char** argv)
         page_cache_d_t* d_pc = (page_cache_d_t*) (h_pc.d_pc_ptr);
         std::cout << "Created page cache" << std::endl;
 
+        // Mount
+        unsigned long *root;
+        cuda_err_chk(cudaMalloc(&root, sizeof(unsigned long)));
+        cuda_err_chk(cudaMemset(root, 0, sizeof(unsigned long)));
+        nfs_mount<<<1, 1>>>(ctrls[0]->d_qps, root);
+
         // Assignment for random access
         uint64_t* assignment;
         uint64_t* d_assignment;
@@ -174,6 +180,7 @@ int main(int argc, char** argv)
             cuda_err_chk(cudaMemcpy(d_assignment, assignment,  n_threads*sizeof(uint64_t), cudaMemcpyHostToDevice));
         }
 
+#if 0
         Event before;
 
         // Launch kernel
@@ -228,14 +235,17 @@ int main(int argc, char** argv)
         std::cout << std::dec << "Elapsed Time: " << elapsed << "\tNumber of Ops: "<< ios << "\tData Size (bytes): " << data << std::endl;
         std::cout << std::dec << "Ops/sec: " << iops << "\tEffective Bandwidth(GB/S): " << bandwidth << std::endl;
         //std::cout << std::dec << ctrls[0]->ns.lba_data_size << std::endl;
-
-        for (size_t i = 0 ; i < settings.n_ctrls; i++)
-            delete ctrls[i];
+#endif
 
         if (settings.random) {
             free(assignment);
             cuda_err_chk(cudaFree(d_assignment));
         }
+
+        cuda_err_chk(cudaFree(root));
+
+        for (size_t i = 0 ; i < settings.n_ctrls; i++)
+            delete ctrls[i];
 
         std::cout << "Done." << std::endl;
     } catch (const error& e) {

@@ -376,7 +376,7 @@ void sq_dequeue(nvm_queue_t* sq, uint16_t pos) {
 }
 
 inline __device__
-uint32_t cq_poll(nvm_queue_t* cq, uint16_t search_cid, uint32_t* loc_ = NULL, uint32_t* cq_head = NULL) {
+uint32_t cq_poll(nvm_queue_t* cq, uint16_t search_cid, uint32_t* loc_ = NULL, uint32_t* cq_head = NULL, uint32_t* res0 = NULL) {
     uint64_t j = 0;
     unsigned int ns = 8;
     //uint64_t tid = threadIdx.x + blockIdx.x * blockDim.x;
@@ -407,6 +407,8 @@ uint32_t cq_poll(nvm_queue_t* cq, uint16_t search_cid, uint32_t* loc_ = NULL, ui
                     *cq_head = head;
                 if (loc_)
                     *loc_ = cur_head;
+                if (res0)
+                    *res0 = ((nvm_cpl_t*)cq->vaddr)[loc].dword[0];
                 return loc;
             }
             if (phase != search_phase)
