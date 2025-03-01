@@ -178,7 +178,7 @@ int main(int argc, char** argv)
             exit(1);
         }
 
-        // Lookup
+        // Filename
         char *__filename;
         uint32_t filename_len = strlen(FILENAME);
         if (filename_len > 16) {
@@ -188,6 +188,7 @@ int main(int argc, char** argv)
         cuda_err_chk(cudaMalloc(&__filename, filename_len));
         cuda_err_chk(cudaMemcpy(__filename, FILENAME, filename_len, cudaMemcpyHostToDevice));
 
+        // Lookup
         nfs_lookup<<<1, 1>>>(ctrls[0]->d_qps, __result, __filename, filename_len);
         cuda_err_chk(cudaDeviceSynchronize());
         cuda_err_chk(cudaMemcpy(&result, __result, sizeof(uint32_t), cudaMemcpyDeviceToHost));
@@ -197,6 +198,19 @@ int main(int argc, char** argv)
             std::cout << "File not found: " << FILENAME << std::endl;
         } else {
             std::cerr << "Failed to lookup: errno " << result << std::endl;
+            exit(1);
+        }
+
+        // Create
+        nfs_create<<<1, 1>>>(ctrls[0]->d_qps, __result, __filename, filename_len, 0664);
+        cuda_err_chk(cudaDeviceSynchronize());
+        cuda_err_chk(cudaMemcpy(&result, __result, sizeof(uint32_t), cudaMemcpyDeviceToHost));
+        if (result == 0) {
+            std::cout << "File created: " << FILENAME << std::endl;
+        } else if (result == EEXIST) {
+            std::cout << "File already exists: " << FILENAME << std::endl;
+        } else {
+            std::cerr << "Failed to create: errno " << result << std::endl;
             exit(1);
         }
 

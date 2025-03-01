@@ -2186,7 +2186,41 @@ void nfs_lookup(QueuePair *qp, uint32_t *result, char *name, uint32_t name_len)
     *result = status;
     file_handle = res0;
 
-    NFS_DEBUG("lookup: %s %u %u\n", name, *result, file_handle);
+    NFS_DEBUG("lookup: name(%s) res(%u) handle(%u)\n", name, *result, file_handle);
+}
+
+__global__
+void nfs_create(QueuePair *qp, uint32_t *result, char *name, uint16_t name_len, uint16_t mode)
+{
+    nvm_cmd_t cmd;
+    uint32_t status, res0;
+
+    // Fill in command
+    uint16_t cid = get_cid(&qp->sq);
+    nvm_cmd_header(&cmd, cid, nvme_cmd_nfs_create, qp->nvmNamespace);
+    cmd.dword[2] = root_handle;
+    cmd.dword[3] = (mode << 16) | name_len;
+    cmd.dword[6] = 0;
+    cmd.dword[7] = 0;
+    cmd.dword[9] = 0;
+    cmd.dword[16] = 0;
+
+    char *cmd_str = (char *)&cmd.dword[10];
+    for (uint32_t i = 0; i < name_len; i++)
+        cmd_str[i] = name[i];
+    cmd_str[name_len] = 0;
+
+    // Process command
+    uint16_t sq_pos = sq_enqueue(&qp->sq, &cmd);
+    uint32_t cq_pos = cq_poll(&qp->cq, cid, NULL, NULL, &status, &res0);
+    cq_dequeue(&qp->cq, cq_pos, &qp->sq);
+    put_cid(&qp->sq, cid);
+
+    // Set file handle
+    *result = status;
+    file_handle = res0;
+
+    NFS_DEBUG("create: name(%s) res(%u) handle(%u)\n", name, *result, file_handle);
 }
 
 __global__
@@ -2214,7 +2248,7 @@ void nfs_mount(QueuePair *qp, uint32_t *result)
     *result = status;
     root_handle = res0;
 
-    NFS_DEBUG("mount: %u %u\n", *result, root_handle);
+    NFS_DEBUG("mount: res(%u) root(%u)\n", *result, root_handle);
 }
 
 //#ifndef __CUDACC__
