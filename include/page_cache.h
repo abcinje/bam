@@ -2163,13 +2163,10 @@ void nfs_lookup(QueuePair *qp, uint32_t *result, char *name, uint32_t name_len)
 
     // Fill in command
     uint16_t cid = get_cid(&qp->sq);
+    memset(&cmd, 0, sizeof(nvm_cmd_t));
     nvm_cmd_header(&cmd, cid, nvme_cmd_nfs_lookup, qp->nvmNamespace);
     cmd.dword[2] = root_handle;
     cmd.dword[3] = name_len;
-    cmd.dword[6] = 0;
-    cmd.dword[7] = 0;
-    cmd.dword[9] = 0;
-    cmd.dword[16] = 0;
 
     char *cmd_str = (char *)&cmd.dword[10];
     for (uint32_t i = 0; i < name_len; i++)
@@ -2197,13 +2194,10 @@ void nfs_create(QueuePair *qp, uint32_t *result, char *name, uint16_t name_len, 
 
     // Fill in command
     uint16_t cid = get_cid(&qp->sq);
+    memset(&cmd, 0, sizeof(nvm_cmd_t));
     nvm_cmd_header(&cmd, cid, nvme_cmd_nfs_create, qp->nvmNamespace);
     cmd.dword[2] = root_handle;
     cmd.dword[3] = (mode << 16) | name_len;
-    cmd.dword[6] = 0;
-    cmd.dword[7] = 0;
-    cmd.dword[9] = 0;
-    cmd.dword[16] = 0;
 
     char *cmd_str = (char *)&cmd.dword[10];
     for (uint32_t i = 0; i < name_len; i++)
@@ -2231,12 +2225,8 @@ void nfs_mount(QueuePair *qp, uint32_t *result)
 
     // Fill in command
     uint16_t cid = get_cid(&qp->sq);
+    memset(&cmd, 0, sizeof(nvm_cmd_t));
     nvm_cmd_header(&cmd, cid, nvme_cmd_nfs_mnt, qp->nvmNamespace);
-    cmd.dword[2] = 0;
-    cmd.dword[10] = 0;
-    cmd.dword[11] = 0;
-    cmd.dword[12] = 0;
-    cmd.dword[13] = 0;
 
     // Process command
     uint16_t sq_pos = sq_enqueue(&qp->sq, &cmd);
