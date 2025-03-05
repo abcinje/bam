@@ -2242,7 +2242,7 @@ void nfs_read(QueuePair *qp, page_cache_d_t *pc, uint32_t pc_entry,
     // Set results
     *result = status;
     if (status == 0)
-        *result_count = res0;
+        *result_count = res0 & 0x7FFFFFFF;  // Ignore the EOF bit
 
     NFS_DEBUG("read: file(%u) offset(%u) count(%u) res(%u) res_count(%u)\n", file_handle, offset, count, *result, *result_count);
 }
