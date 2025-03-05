@@ -360,17 +360,10 @@ static void verifyNumberOfThreads(size_t numThreads)
 void Settings::parseArguments(int argc, char** argv)
 {
     OptionMap parsers = {
-#ifdef __DIS_CLUSTER__
-        {'c', OptionPtr(new Option<uint64_t>(controllerId, "fdid", "ctrl", "NVM controller device identifier"))},
-        {'f', OptionPtr(new Option<uint64_t>(cudaDeviceId, "fdid", "fdid", "CUDA device FDID"))},
-        {'a', OptionPtr(new Option<uint32_t>(adapter, "number", "adapter", "DIS adapter number", "0"))},
-        {'S', OptionPtr(new Option<uint32_t>(segmentId, "offset", "segment", "DIS segment identifier offset", "0"))},
-#else
         //{'c', OptionPtr(new Option<const char*>(controllerPath, "path", "ctrl", "NVM controller device path"))},
-#endif
-        {'f', OptionPtr(new Option<const char*>(input, "path", "input", "Input dataset path used to write to NVMe SSD"))},
-        {'g', OptionPtr(new Option<uint32_t>(cudaDevice, "number", "gpu", "specify CUDA device", "0"))},
-        {'k', OptionPtr(new Option<uint32_t>(n_ctrls, "number", "n_ctrls", "specify number of NVMe controllers", "1"))},
+        //{'f', OptionPtr(new Option<const char*>(input, "path", "input", "Input dataset path used to write to NVMe SSD"))},
+        //{'g', OptionPtr(new Option<uint32_t>(cudaDevice, "number", "gpu", "specify CUDA device", "0"))},
+        //{'k', OptionPtr(new Option<uint32_t>(n_ctrls, "number", "n_ctrls", "specify number of NVMe controllers", "1"))},
         //{'i', OptionPtr(new Option<uint32_t>(nvmNamespace, "identifier", "namespace", "NVM namespace identifier", "1"))},
         //{'B', OptionPtr(new Option<bool>(doubleBuffered, "bool", "double-buffer", "double buffer disk reads", "false"))},
         //{'r', OptionPtr(new Option<bool>(stats, "bool", "stats", "print statistics", "false"))},
@@ -382,12 +375,12 @@ void Settings::parseArguments(int argc, char** argv)
         {'d', OptionPtr(new Range(queueDepth, 2, 65536, "queue_depth", "queue depth per queue", "16"))},
         {'q', OptionPtr(new Range(numQueues, 1, 65536, "num_queues", "number of queues per controller", "1"))},
         {'e', OptionPtr(new Range(numBlks, 1, (uint64_t)std::numeric_limits<uint64_t>::max, "num_blks", "number of pages in backing array", "2097152"))},
-        {'r', OptionPtr(new Option<bool>(random, "bool", "random", "if true the random access benchmark runs, if false the sequential access benchmark runs", "true"))},
+        //{'r', OptionPtr(new Option<bool>(random, "bool", "random", "if true the random access benchmark runs, if false the sequential access benchmark runs", "true"))},
         //{'o', OptionPtr(new Option<const char*>(output, "path", "output", "output read data to file"))},
         //{'s', OptionPtr(new Option<uint64_t>(startBlock, "offset", "offset", "number of blocks to offset", "0"))},
         //{'j', OptionPtr(new Option<const char*>(blockDevicePath, "path", "block-device", "path to block device"))},
-        {'o', OptionPtr(new Range(accessType, 0, 3, "access_type", "type of access to make: 0->read, 1->write, 2->mixed", "0"))},
-        {'s', OptionPtr(new Range(ratio, 0, 100, "ratio", "ratio split for % of mixed accesses that are read", "100"))},
+        {'o', OptionPtr(new Range(accessType, 0, 3, "access_type", "type of access to make: 0->read, 1->write", "0"))},
+        //{'s', OptionPtr(new Range(ratio, 0, 100, "ratio", "ratio split for % of mixed accesses that are read", "100"))},
     };
 
     string optionString;
@@ -422,16 +415,6 @@ void Settings::parseArguments(int argc, char** argv)
         }
     }
 /*
-#ifdef __DIS_CLUSTER__
-    if (blockDevicePath == nullptr && controllerId == 0)
-    {
-        throw string("No block device or NVM controller specified");
-    }
-    else if (blockDevicePath != nullptr && controllerId != 0)
-    {
-        throw string("Either block device or NVM controller must be specified, not both!");
-    }
-#else
     if (blockDevicePath == nullptr && controllerPath == nullptr)
     {
         throw string("No block device or NVM controller specified");
@@ -440,7 +423,6 @@ void Settings::parseArguments(int argc, char** argv)
     {
         throw string("Either block device or NVM controller must be specified, not both!");
     }
-#endif
 
     if (blockDevicePath != nullptr && doubleBuffered)
     {
