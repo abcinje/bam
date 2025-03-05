@@ -201,17 +201,19 @@ int main(int argc, char** argv)
             exit(1);
         }
 
-        // Create
-        nfs_create<<<1, 1>>>(ctrls[0]->d_qps, __result, __filename, filename_len, 0664);
-        cuda_err_chk(cudaDeviceSynchronize());
-        cuda_err_chk(cudaMemcpy(&result, __result, sizeof(uint32_t), cudaMemcpyDeviceToHost));
-        if (result == 0) {
-            std::cout << "File created: " << FILENAME << std::endl;
-        } else if (result == EEXIST) {
-            std::cout << "File already exists: " << FILENAME << std::endl;
-        } else {
-            std::cerr << "Failed to create: errno " << result << std::endl;
-            exit(1);
+        // Create if not found
+        if (result == ENOENT) {
+            nfs_create<<<1, 1>>>(ctrls[0]->d_qps, __result, __filename, filename_len, 0664);
+            cuda_err_chk(cudaDeviceSynchronize());
+            cuda_err_chk(cudaMemcpy(&result, __result, sizeof(uint32_t), cudaMemcpyDeviceToHost));
+            if (result == 0) {
+                std::cout << "File created: " << FILENAME << std::endl;
+            } else if (result == EEXIST) {
+                std::cout << "File already exists: " << FILENAME << std::endl;
+            } else {
+                std::cerr << "Failed to create: errno " << result << std::endl;
+                exit(1);
+            }
         }
 
         // Assignment for random access
