@@ -39,86 +39,6 @@ const char* const ctrls_paths[] = {"/dev/libnvm0", "/dev/libnvm1", "/dev/libnvm2
 
 #define SIZE (8*4096)
 
-template<size_t n>
-__global__ __launch_bounds__(64,32)
-void random_access_kernel(Controller** ctrls, page_cache_d_t* pc,  uint32_t req_size, uint32_t n_reqs, uint32_t num_ctrls, uint64_t* assignment, uint64_t reqs_per_thread, uint32_t access_type)
-{
-    //printf("in threads\n");
-    uint64_t tid = blockIdx.x * blockDim.x + threadIdx.x;
-    uint32_t laneid = lane_id();
-    uint32_t bid = blockIdx.x;
-    uint32_t smid = get_smid();
-
-    uint32_t ctrl;
-    uint32_t queue;
-
-    if (laneid == 0) {
-        ctrl = smid % (pc->n_ctrls);
-        //ctrl = pc->ctrl_counter->fetch_add(1, simt::memory_order_relaxed) % (pc->n_ctrls);
-        queue = ctrls[ctrl]->queue_counter.fetch_add(1, simt::memory_order_relaxed) %  (ctrls[ctrl]->n_qps);
-        //queue = smid % (ctrls[ctrl]->n_qps);
-    }
-    ctrl = __shfl_sync(0xFFFFFFFF, ctrl, 0);
-    queue = __shfl_sync(0xFFFFFFFF, queue, 0);
-
-    if (tid < n_reqs) {
-        uint64_t start_block = (assignment[tid]*req_size) >> ctrls[ctrl]->d_qps[queue].block_size_log;
-        //uint64_t start_block = (tid*req_size) >> ctrls[ctrl]->d_qps[queue].block_size_log;
-        //start_block = tid;
-        uint64_t n_blocks = req_size >> ctrls[ctrl]->d_qps[queue].block_size_log; /// ctrls[ctrl].ns.lba_data_size;;
-        //printf("tid: %llu\tstart_block: %llu\tn_blocks: %llu\n", (unsigned long long) tid, (unsigned long long) start_block, (unsigned long long) n_blocks);
-
-        uint16_t cids[n];
-        uint16_t sq_poss[n];
-        #pragma unroll
-        for (size_t i = 0; i < n; i++)
-            access_data_async(pc, (ctrls[ctrl]->d_qps)+(queue),start_block, n_blocks, tid, NVM_IO_READ, cids+i, sq_poss+i);
-        #pragma unroll
-        for (size_t i = 0; i < n; i++)
-            poll_async((ctrls[ctrl]->d_qps)+(queue), cids[i], sq_poss[i]);
-    }
-}
-
-template<size_t n>
-__global__ __launch_bounds__(64,32)
-void sequential_access_kernel(Controller** ctrls, page_cache_d_t* pc,  uint32_t req_size, uint32_t n_reqs, uint32_t num_ctrls, uint64_t* assignment, uint64_t reqs_per_thread, uint32_t access_type)
-{
-    //printf("in threads\n");
-    uint64_t tid = blockIdx.x * blockDim.x + threadIdx.x;
-    uint32_t laneid = lane_id();
-    uint32_t bid = blockIdx.x;
-    uint32_t smid = get_smid();
-
-    uint32_t ctrl;
-    uint32_t queue;
-
-    if (laneid == 0) {
-        ctrl = smid % (pc->n_ctrls);
-        //ctrl = pc->ctrl_counter->fetch_add(1, simt::memory_order_relaxed) % (pc->n_ctrls);
-        queue = ctrls[ctrl]->queue_counter.fetch_add(1, simt::memory_order_relaxed) %  (ctrls[ctrl]->n_qps);
-        //queue = smid % (ctrls[ctrl]->n_qps);
-    }
-    ctrl =  __shfl_sync(0xFFFFFFFF, ctrl, 0);
-    queue =  __shfl_sync(0xFFFFFFFF, queue, 0);
-
-    if (tid < n_reqs) {
-        uint64_t start_block = (tid*req_size) >> ctrls[ctrl]->d_qps[queue].block_size_log;
-        //uint64_t start_block = (tid*req_size) >> ctrls[ctrl]->d_qps[queue].block_size_log;
-        //start_block = tid;
-        uint64_t n_blocks = req_size >> ctrls[ctrl]->d_qps[queue].block_size_log; /// ctrls[ctrl].ns.lba_data_size;;
-        //printf("tid: %llu\tstart_block: %llu\tn_blocks: %llu\n", (unsigned long long) tid, (unsigned long long) start_block, (unsigned long long) n_blocks);
-
-        uint16_t cids[n];
-        uint16_t sq_poss[n];
-        #pragma unroll
-        for (size_t i = 0; i < n; i++)
-            access_data_async(pc, (ctrls[ctrl]->d_qps)+(queue),start_block, n_blocks, tid, NVM_IO_READ, cids+i, sq_poss+i);
-        #pragma unroll
-        for (size_t i = 0; i < n; i++)
-            poll_async((ctrls[ctrl]->d_qps)+(queue), cids[i], sq_poss[i]);
-    }
-}
-
 int main(int argc, char** argv)
 {
     Settings settings;
@@ -230,44 +150,7 @@ int main(int argc, char** argv)
 #if 0
         Event before;
 
-        // Launch kernel
-        if (settings.random) {
-            switch (settings.numReqs) {
-            case 1:
-                random_access_kernel<1><<<g_size, b_size>>>(h_pc.pdt.d_ctrls, d_pc, page_size, n_threads, settings.n_ctrls, d_assignment, settings.numReqs, settings.accessType);
-                break;
-            case 2:
-                random_access_kernel<2><<<g_size, b_size>>>(h_pc.pdt.d_ctrls, d_pc, page_size, n_threads, settings.n_ctrls, d_assignment, settings.numReqs, settings.accessType);
-                break;
-            case 3:
-                random_access_kernel<3><<<g_size, b_size>>>(h_pc.pdt.d_ctrls, d_pc, page_size, n_threads, settings.n_ctrls, d_assignment, settings.numReqs, settings.accessType);
-                break;
-            case 4:
-                random_access_kernel<4><<<g_size, b_size>>>(h_pc.pdt.d_ctrls, d_pc, page_size, n_threads, settings.n_ctrls, d_assignment, settings.numReqs, settings.accessType);
-                break;
-            default:
-                std::cout << "Invalid num reqs\n";
-                break;
-            }
-        } else {
-            switch (settings.numReqs) {
-            case 1:
-                sequential_access_kernel<1><<<g_size, b_size>>>(h_pc.pdt.d_ctrls, d_pc, page_size, n_threads, settings.n_ctrls, d_assignment, settings.numReqs, settings.accessType);
-                break;
-            case 2:
-                sequential_access_kernel<2><<<g_size, b_size>>>(h_pc.pdt.d_ctrls, d_pc, page_size, n_threads, settings.n_ctrls, d_assignment, settings.numReqs, settings.accessType);
-                break;
-            case 3:
-                sequential_access_kernel<3><<<g_size, b_size>>>(h_pc.pdt.d_ctrls, d_pc, page_size, n_threads, settings.n_ctrls, d_assignment, settings.numReqs, settings.accessType);
-                break;
-            case 4:
-                sequential_access_kernel<4><<<g_size, b_size>>>(h_pc.pdt.d_ctrls, d_pc, page_size, n_threads, settings.n_ctrls, d_assignment, settings.numReqs, settings.accessType);
-                break;
-            default:
-                std::cout << "Invalid num reqs\n";
-                break;
-            }
-        }
+        // TODO: Launch kernel
 
         Event after;
 
