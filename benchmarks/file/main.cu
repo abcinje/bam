@@ -126,7 +126,6 @@ int main(int argc, char** argv)
         uint64_t n_threads = b_size * g_size;
         uint64_t page_size = settings.pageSize;
         uint64_t n_pages = settings.numPages;
-        uint64_t n_blocks = settings.numBlks;
         uint64_t access_type = settings.accessType;
         uint64_t num_reqs = settings.numReqs;
         if (n_pages < n_threads) {
