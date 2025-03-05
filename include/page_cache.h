@@ -2181,7 +2181,8 @@ void nfs_lookup(QueuePair *qp, uint32_t *result, char *name, uint32_t name_len)
 
     // Set file handle
     *result = status;
-    file_handle = res0;
+    if (status == 0)
+        file_handle = res0;
 
     NFS_DEBUG("lookup: name(%s) res(%u) handle(%u)\n", name, *result, file_handle);
 }
@@ -2212,7 +2213,8 @@ void nfs_create(QueuePair *qp, uint32_t *result, char *name, uint16_t name_len, 
 
     // Set file handle
     *result = status;
-    file_handle = res0;
+    if (status == 0)
+        file_handle = res0;
 
     NFS_DEBUG("create: name(%s) res(%u) handle(%u)\n", name, *result, file_handle);
 }
@@ -2236,7 +2238,8 @@ void nfs_mount(QueuePair *qp, uint32_t *result)
 
     // Set root handle
     *result = status;
-    root_handle = res0;
+    if (status == 0)
+        root_handle = res0;
 
     NFS_DEBUG("mount: res(%u) root(%u)\n", *result, root_handle);
 }
