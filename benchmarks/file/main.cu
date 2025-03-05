@@ -136,17 +136,6 @@ int main(int argc, char** argv)
             }
         }
 
-        // Assignment for random access
-        uint64_t* assignment;
-        uint64_t* d_assignment;
-        if (settings.random) {
-            assignment = (uint64_t*)malloc(n_threads*sizeof(uint64_t));
-            for (size_t i = 0; i < n_threads; i++)
-                assignment[i] = rand() % n_blocks;
-            cuda_err_chk(cudaMalloc(&d_assignment, n_threads*sizeof(uint64_t)));
-            cuda_err_chk(cudaMemcpy(d_assignment, assignment,  n_threads*sizeof(uint64_t), cudaMemcpyHostToDevice));
-        }
-
 #if 0
         Event before;
 
@@ -166,11 +155,6 @@ int main(int argc, char** argv)
         std::cout << std::dec << "Ops/sec: " << iops << "\tEffective Bandwidth(GB/S): " << bandwidth << std::endl;
         //std::cout << std::dec << ctrls[0]->ns.lba_data_size << std::endl;
 #endif
-
-        if (settings.random) {
-            free(assignment);
-            cuda_err_chk(cudaFree(d_assignment));
-        }
 
         cuda_err_chk(cudaFree(__filename));
         cuda_err_chk(cudaFree(__result));
