@@ -127,8 +127,18 @@ int main(int argc, char** argv)
         uint64_t page_size = settings.pageSize;
         uint64_t n_pages = settings.numPages;
         uint64_t n_blocks = settings.numBlks;
+        uint64_t access_type = settings.accessType;
+        uint64_t num_reqs = settings.numReqs;
         if (n_pages < n_threads) {
             std::cerr << "Please provide enough pages. Number of pages must be greater than or equal to the number of threads!\n";
+            exit(1);
+        }
+        if (access_type != READ && access_type != WRITE) {
+            std::cerr << "Invalid access type\n";
+            exit(1);
+        }
+        if (num_reqs != 1) {
+            std::cerr << "Number of requests must be 1\n";
             exit(1);
         }
 
@@ -188,10 +198,18 @@ int main(int argc, char** argv)
             }
         }
 
-#if 0
+        if (access_type == READ) {
+            write_file<<<g_size, b_size>>>(h_pc.pdt.d_ctrls, d_pc, n_threads, page_size);
+            cuda_err_chk(cudaDeviceSynchronize());
+        }
+
         Event before;
 
-        // TODO: Launch kernel
+        // Launch kernel
+        if (access_type == READ)
+            read_file<<<g_size, b_size>>>(h_pc.pdt.d_ctrls, d_pc, n_threads, page_size);
+        else
+            write_file<<<g_size, b_size>>>(h_pc.pdt.d_ctrls, d_pc, n_threads, page_size);
 
         Event after;
 
@@ -199,14 +217,13 @@ int main(int argc, char** argv)
 
         // Performance
         double elapsed = after - before;
-        uint64_t ios = g_size * b_size * settings.numReqs;
+        uint64_t ios = g_size * b_size * num_reqs;
         uint64_t data = ios * page_size;
         double iops = ((double)ios) / (elapsed/1000000);
         double bandwidth = (((double)data) / (elapsed / 1000000)) / (1024ULL * 1024ULL * 1024ULL);
         std::cout << std::dec << "Elapsed Time: " << elapsed << "\tNumber of Ops: "<< ios << "\tData Size (bytes): " << data << std::endl;
         std::cout << std::dec << "Ops/sec: " << iops << "\tEffective Bandwidth(GB/S): " << bandwidth << std::endl;
         //std::cout << std::dec << ctrls[0]->ns.lba_data_size << std::endl;
-#endif
 
         cuda_err_chk(cudaFree(__filename));
         cuda_err_chk(cudaFree(__result));
