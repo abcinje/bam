@@ -470,7 +470,7 @@ Settings::Settings()
     startBlock = 0;
     stats = false;
     output = nullptr;
-    numThreads = 64;
+    numThreads = 1024;
     blkSize = 64;
     domain = 0;
     bus = 0;
