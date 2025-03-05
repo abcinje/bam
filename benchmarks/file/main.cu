@@ -39,6 +39,58 @@ const char* const ctrls_paths[] = {"/dev/libnvm0", "/dev/libnvm1", "/dev/libnvm2
 
 #define SIZE (8*4096)
 
+__global__ __launch_bounds__(64, 32)
+void write_file(Controller **ctrls, page_cache_d_t *pc, uint32_t n_threads, uint32_t io_size)
+{
+    uint32_t result, result_count;
+
+    uint64_t tid = blockIdx.x * blockDim.x + threadIdx.x;
+    uint32_t laneid = lane_id();
+
+    uint32_t ctrl = 0;
+    uint32_t queue;
+
+    if (laneid == 0)
+        queue = ctrls[ctrl]->queue_counter.fetch_add(1, simt::memory_order_relaxed) % ctrls[ctrl]->n_qps;
+    queue = __shfl_sync(0xFFFFFFFF, queue, 0);
+
+    if (tid < n_threads) {
+        uint32_t offset = tid * io_size;
+        uint32_t count = io_size;
+
+        nfs_write(ctrls[ctrl]->d_qps + queue, pc, tid, offset, count, &result, &result_count);
+    }
+
+    if (result != 0 || result_count != io_size)
+        printf("write: %u %u\n", result, result_count);
+}
+
+__global__ __launch_bounds__(64, 32)
+void read_file(Controller **ctrls, page_cache_d_t *pc, uint32_t n_threads, uint32_t io_size)
+{
+    uint32_t result, result_count;
+
+    uint64_t tid = blockIdx.x * blockDim.x + threadIdx.x;
+    uint32_t laneid = lane_id();
+
+    uint32_t ctrl = 0;
+    uint32_t queue;
+
+    if (laneid == 0)
+        queue = ctrls[ctrl]->queue_counter.fetch_add(1, simt::memory_order_relaxed) % ctrls[ctrl]->n_qps;
+    queue = __shfl_sync(0xFFFFFFFF, queue, 0);
+
+    if (tid < n_threads) {
+        uint32_t offset = tid * io_size;
+        uint32_t count = io_size;
+
+        nfs_read(ctrls[ctrl]->d_qps + queue, pc, tid, offset, count, &result, &result_count);
+    }
+
+    if (result != 0 || result_count != io_size)
+        printf("read: %u %u\n", result, result_count);
+}
+
 int main(int argc, char** argv)
 {
     Settings settings;
