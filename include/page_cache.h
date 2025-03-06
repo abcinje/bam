@@ -2175,7 +2175,7 @@ void nfs_write(QueuePair *qp, page_cache_d_t *pc, uint32_t pc_entry,
 
     // Set PRP
     uint64_t prp1 = pc->prp1[pc_entry];
-    uint64_t prp2 = 0;
+    uint64_t prp2 = pc->prps ? pc->prp2[pc_entry] : 0;
     cmd.dword[6] = (uint32_t)prp1;
     cmd.dword[7] = (uint32_t)(prp1 >> 32);
     cmd.dword[8] = (uint32_t)prp2;
@@ -2213,7 +2213,7 @@ void nfs_read(QueuePair *qp, page_cache_d_t *pc, uint32_t pc_entry,
 
     // Set PRP
     uint64_t prp1 = pc->prp1[pc_entry];
-    uint64_t prp2 = 0;
+    uint64_t prp2 = pc->prps ? pc->prp2[pc_entry] : 0;
     cmd.dword[6] = (uint32_t)prp1;
     cmd.dword[7] = (uint32_t)(prp1 >> 32);
     cmd.dword[8] = (uint32_t)prp2;
