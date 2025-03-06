@@ -29,6 +29,12 @@
 #include <iostream>
 #include <fstream>
 #include <byteswap.h>
+#include <chrono>
+#include <thread>
+
+// #define IO_VERIFY
+#define VERIFY_INPUT "verify.in"
+#define VERIFY_OUTPUT "verify.out"
 
 using error = std::runtime_error;
 using std::string;
@@ -128,6 +134,9 @@ int main(int argc, char** argv)
         uint64_t n_pages = settings.numPages;
         uint64_t access_type = settings.accessType;
         uint64_t num_reqs = settings.numReqs;
+        uint64_t ios = g_size * b_size * num_reqs;
+        uint64_t data = ios * page_size;
+
         if (n_pages < n_threads) {
             std::cerr << "Please provide enough pages. Number of pages must be greater than or equal to the number of threads!\n";
             exit(1);
@@ -149,6 +158,35 @@ int main(int argc, char** argv)
         page_cache_t h_pc(page_size, n_pages, settings.cudaDevice, ctrls[0][0], (uint64_t) 64, ctrls);
         page_cache_d_t* d_pc = (page_cache_d_t*) (h_pc.d_pc_ptr);
         std::cout << "Created page cache" << std::endl;
+
+#ifdef IO_VERIFY
+        int input_fd;
+        struct stat input_stat;
+        void *input_data;
+
+        if (access_type == WRITE) {
+            input_fd = open(VERIFY_INPUT, O_RDONLY);
+            if (input_fd < 0) {
+                std::cerr << "Failed to open input file\n";
+                return 1;
+            }
+
+            fstat(input_fd, &input_stat);
+            if (input_stat.st_size != data) {
+                std::cerr << "Input file size does not match\n";
+                return 1;
+            }
+
+            input_data = mmap(NULL, data, PROT_READ, MAP_SHARED, input_fd, 0);
+            if (input_data == MAP_FAILED) {
+                std::cerr << "Failed to mmap input file\n";
+                return 1;
+            }
+
+            cuda_err_chk(cudaMemcpy(h_pc.pdt.base_addr, input_data, data, cudaMemcpyHostToDevice));
+            cuda_err_chk(cudaDeviceSynchronize());
+        }
+#endif
 
         // Status
         uint32_t result, *__result;
@@ -201,10 +239,15 @@ int main(int argc, char** argv)
             }
         }
 
+#ifndef IO_VERIFY
         if (access_type == READ) {
             write_file<<<g_size, b_size>>>(h_pc.pdt.d_ctrls, d_pc, n_threads, page_size);
             cuda_err_chk(cudaDeviceSynchronize());
+
+            std::cout << "Preconditioning finished. Sleep for 10 seconds..." << std::endl;
+            std::this_thread::sleep_for(std::chrono::seconds(10));
         }
+#endif
 
         Event before;
 
@@ -220,13 +263,48 @@ int main(int argc, char** argv)
 
         // Performance
         double elapsed = after - before;
-        uint64_t ios = g_size * b_size * num_reqs;
-        uint64_t data = ios * page_size;
         double iops = ((double)ios) / (elapsed/1000000);
         double bandwidth = (((double)data) / (elapsed / 1000000)) / (1024ULL * 1024ULL * 1024ULL);
         std::cout << std::dec << "Elapsed Time: " << elapsed << "\tNumber of Ops: "<< ios << "\tData Size (bytes): " << data << std::endl;
         std::cout << std::dec << "Ops/sec: " << iops << "\tEffective Bandwidth(GB/S): " << bandwidth << std::endl;
         //std::cout << std::dec << ctrls[0]->ns.lba_data_size << std::endl;
+
+#ifdef IO_VERIFY
+        int output_fd;
+        void *output_data;
+
+        if (access_type == READ) {
+            output_fd = open(VERIFY_OUTPUT, O_RDWR | O_CREAT, 0664);
+            if (output_fd < 0) {
+                std::cerr << "Failed to open output file\n";
+                return 1;
+            }
+
+            if (ftruncate(output_fd, data) < 0) {
+                std::cerr << "Failed to truncate output file\n";
+                return 1;
+            }
+
+            output_data = mmap(NULL, data, PROT_WRITE, MAP_SHARED, output_fd, 0);
+            if (output_data == MAP_FAILED) {
+                std::cerr << "Failed to mmap output file\n";
+                return 1;
+            }
+
+            cuda_err_chk(cudaMemcpy(output_data, h_pc.pdt.base_addr, data, cudaMemcpyDeviceToHost));
+            cuda_err_chk(cudaDeviceSynchronize());
+        }
+#endif
+
+#ifdef IO_VERIFY
+        if (access_type == WRITE) {
+            munmap(input_data, data);
+            close(input_fd);
+        } else {
+            munmap(output_data, data);
+            close(output_fd);
+        }
+#endif
 
         cuda_err_chk(cudaFree(__filename));
         cuda_err_chk(cudaFree(__result));
