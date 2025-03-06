@@ -2173,13 +2173,6 @@ void nfs_write(QueuePair *qp, page_cache_d_t *pc, uint32_t pc_entry,
     cmd.dword[10] = offset;
     cmd.dword[11] = count;
 
-    // Check page count
-    uint32_t page_count = (count + PAGE_SIZE - 1) / PAGE_SIZE;
-    if (page_count > 1) {
-        NFS_DEBUG("write: unsupported count(%u)\n", count);
-        return;
-    }
-
     // Set PRP
     uint64_t prp1 = pc->prp1[pc_entry];
     uint64_t prp2 = 0;
@@ -2217,13 +2210,6 @@ void nfs_read(QueuePair *qp, page_cache_d_t *pc, uint32_t pc_entry,
     cmd.dword[2] = file_handle;
     cmd.dword[10] = offset;
     cmd.dword[11] = count;
-
-    // Check page count
-    uint32_t page_count = (count + PAGE_SIZE - 1) / PAGE_SIZE;
-    if (page_count > 1) {
-        NFS_DEBUG("read: unsupported count(%u)\n", count);
-        return;
-    }
 
     // Set PRP
     uint64_t prp1 = pc->prp1[pc_entry];
