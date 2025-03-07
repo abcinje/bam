@@ -149,8 +149,8 @@ int main(int argc, char** argv)
             std::cerr << "Number of requests must be 1\n";
             exit(1);
         }
-        if (page_size != 4096 && page_size != 8192) {
-            std::cerr << "Page size must be 4096 or 8192\n";
+        if (page_size & 0xfff) {
+            std::cerr << "Page size must be a multiple of 4096\n";
             exit(1);
         }
 
