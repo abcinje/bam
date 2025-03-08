@@ -33,6 +33,8 @@
 #include <thread>
 
 // #define IO_VERIFY
+// #define IO_ASYNC
+
 #define VERIFY_INPUT "verify.in"
 #define VERIFY_OUTPUT "verify.out"
 
@@ -70,6 +72,41 @@ void access_file(Controller **ctrls, page_cache_d_t *pc, uint8_t opcode, uint32_
 
     // if (result != 0 || result_count != io_size)
     //     printf("rw(0x%x): %u %u\n", opcode, result, result_count);
+}
+
+template <uint32_t n_reqs>
+__global__ __launch_bounds__(64, 32)
+void access_file_async(Controller **ctrls, page_cache_d_t *pc, uint8_t opcode, uint32_t n_threads, uint32_t io_size)
+{
+    uint32_t result, result_count;
+
+    uint64_t tid = blockIdx.x * blockDim.x + threadIdx.x;
+    uint32_t laneid = lane_id();
+
+    uint32_t ctrl = 0;
+    uint32_t queue;
+
+    if (laneid == 0)
+        queue = ctrls[ctrl]->queue_counter.fetch_add(1, simt::memory_order_relaxed) % ctrls[ctrl]->n_qps;
+    queue = __shfl_sync(0xFFFFFFFF, queue, 0);
+
+    if (tid < n_threads) {
+        uint32_t offset = tid * io_size;
+        uint32_t count = io_size;
+
+        uint16_t cids[n_reqs];
+
+        #pragma unroll
+        for (uint32_t i = 0; i < n_reqs; i++)
+            nfs_rw_submit(ctrls[ctrl]->d_qps + queue, pc, tid, cids + i, opcode, offset, count);
+
+        #pragma unroll
+        for (uint32_t i = 0; i < n_reqs; i++)
+            nfs_rw_wait(ctrls[ctrl]->d_qps + queue, cids[i], &result, &result_count);
+    }
+
+    // if (result != 0 || result_count != io_size)
+    //     printf("rw_async(0x%x): %u %u\n", opcode, result, result_count);
 }
 
 int main(int argc, char** argv)
@@ -120,6 +157,12 @@ int main(int argc, char** argv)
             std::cerr << "Invalid access type\n";
             exit(1);
         }
+#ifdef IO_ASYNC
+        if (!(1 <= n_reqs && n_reqs <= 4)) {
+            std::cerr << "Number of requests must be between 1 and 4, inclusive\n";
+            exit(1);
+        }
+#endif
         if (page_size & 0xfff) {
             std::cerr << "Page size must be a multiple of 4096\n";
             exit(1);
@@ -222,11 +265,28 @@ int main(int argc, char** argv)
 
         Event before;
 
-        // Launch kernel
-        if (access_type == READ)
-            access_file<<<g_size, b_size>>>(h_pc.pdt.d_ctrls, d_pc, nvme_cmd_nfs_read, n_threads, n_reqs, page_size);
-        else
-            access_file<<<g_size, b_size>>>(h_pc.pdt.d_ctrls, d_pc, nvme_cmd_nfs_write, n_threads, n_reqs, page_size);
+
+#ifdef IO_ASYNC
+        switch (n_reqs) {
+        case 1:
+            access_file_async<1><<<g_size, b_size>>>(h_pc.pdt.d_ctrls, d_pc, access_type == READ ? nvme_cmd_nfs_read : nvme_cmd_nfs_write, n_threads, page_size);
+            break;
+        case 2:
+            access_file_async<2><<<g_size, b_size>>>(h_pc.pdt.d_ctrls, d_pc, access_type == READ ? nvme_cmd_nfs_read : nvme_cmd_nfs_write, n_threads, page_size);
+            break;
+        case 3:
+            access_file_async<3><<<g_size, b_size>>>(h_pc.pdt.d_ctrls, d_pc, access_type == READ ? nvme_cmd_nfs_read : nvme_cmd_nfs_write, n_threads, page_size);
+            break;
+        case 4:
+            access_file_async<4><<<g_size, b_size>>>(h_pc.pdt.d_ctrls, d_pc, access_type == READ ? nvme_cmd_nfs_read : nvme_cmd_nfs_write, n_threads, page_size);
+            break;
+        default:
+            std::cerr << "Invalid number of requests\n";
+            exit(1);
+        }
+#else
+        access_file<<<g_size, b_size>>>(h_pc.pdt.d_ctrls, d_pc, access_type == READ ? nvme_cmd_nfs_read : nvme_cmd_nfs_write, n_threads, n_reqs, page_size);
+#endif
 
         Event after;
 
