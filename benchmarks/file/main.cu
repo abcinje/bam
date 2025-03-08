@@ -67,8 +67,8 @@ void write_file(Controller **ctrls, page_cache_d_t *pc, uint32_t n_threads, uint
         nfs_write(ctrls[ctrl]->d_qps + queue, pc, tid, offset, count, &result, &result_count);
     }
 
-    if (result != 0 || result_count != io_size)
-        printf("write: %u %u\n", result, result_count);
+    // if (result != 0 || result_count != io_size)
+    //     printf("write: %u %u\n", result, result_count);
 }
 
 __global__ __launch_bounds__(64, 32)
@@ -93,8 +93,8 @@ void read_file(Controller **ctrls, page_cache_d_t *pc, uint32_t n_threads, uint3
         nfs_read(ctrls[ctrl]->d_qps + queue, pc, tid, offset, count, &result, &result_count);
     }
 
-    if (result != 0 || result_count != io_size)
-        printf("read: %u %u\n", result, result_count);
+    // if (result != 0 || result_count != io_size)
+    //     printf("read: %u %u\n", result, result_count);
 }
 
 int main(int argc, char** argv)
