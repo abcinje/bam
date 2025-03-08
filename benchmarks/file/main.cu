@@ -46,7 +46,7 @@ const char* const ctrls_paths[] = {"/dev/libnvm0", "/dev/libnvm1", "/dev/libnvm2
 #define SIZE (8*4096)
 
 __global__ __launch_bounds__(64, 32)
-void write_file(Controller **ctrls, page_cache_d_t *pc, uint32_t n_threads, uint32_t n_reqs, uint32_t io_size)
+void access_file(Controller **ctrls, page_cache_d_t *pc, uint8_t opcode, uint32_t n_threads, uint32_t n_reqs, uint32_t io_size)
 {
     uint32_t result, result_count;
 
@@ -65,38 +65,11 @@ void write_file(Controller **ctrls, page_cache_d_t *pc, uint32_t n_threads, uint
         uint32_t count = io_size;
 
         for (uint32_t i = 0; i < n_reqs; i++)
-            nfs_write(ctrls[ctrl]->d_qps + queue, pc, tid, offset, count, &result, &result_count);
+            nfs_rw(ctrls[ctrl]->d_qps + queue, pc, tid, opcode, offset, count, &result, &result_count);
     }
 
     // if (result != 0 || result_count != io_size)
-    //     printf("write: %u %u\n", result, result_count);
-}
-
-__global__ __launch_bounds__(64, 32)
-void read_file(Controller **ctrls, page_cache_d_t *pc, uint32_t n_threads, uint32_t n_reqs, uint32_t io_size)
-{
-    uint32_t result, result_count;
-
-    uint64_t tid = blockIdx.x * blockDim.x + threadIdx.x;
-    uint32_t laneid = lane_id();
-
-    uint32_t ctrl = 0;
-    uint32_t queue;
-
-    if (laneid == 0)
-        queue = ctrls[ctrl]->queue_counter.fetch_add(1, simt::memory_order_relaxed) % ctrls[ctrl]->n_qps;
-    queue = __shfl_sync(0xFFFFFFFF, queue, 0);
-
-    if (tid < n_threads) {
-        uint32_t offset = tid * io_size;
-        uint32_t count = io_size;
-
-        for (uint32_t i = 0; i < n_reqs; i++)
-            nfs_read(ctrls[ctrl]->d_qps + queue, pc, tid, offset, count, &result, &result_count);
-    }
-
-    // if (result != 0 || result_count != io_size)
-    //     printf("read: %u %u\n", result, result_count);
+    //     printf("rw(0x%x): %u %u\n", opcode, result, result_count);
 }
 
 int main(int argc, char** argv)
@@ -239,7 +212,7 @@ int main(int argc, char** argv)
 
 #ifndef IO_VERIFY
         if (access_type == READ) {
-            write_file<<<g_size, b_size>>>(h_pc.pdt.d_ctrls, d_pc, n_threads, 1, page_size);
+            access_file<<<g_size, b_size>>>(h_pc.pdt.d_ctrls, d_pc, nvme_cmd_nfs_write, n_threads, 1, page_size);
             cuda_err_chk(cudaDeviceSynchronize());
 
             std::cout << "Preconditioning finished. Sleep for 10 seconds..." << std::endl;
@@ -251,9 +224,9 @@ int main(int argc, char** argv)
 
         // Launch kernel
         if (access_type == READ)
-            read_file<<<g_size, b_size>>>(h_pc.pdt.d_ctrls, d_pc, n_threads, n_reqs, page_size);
+            access_file<<<g_size, b_size>>>(h_pc.pdt.d_ctrls, d_pc, nvme_cmd_nfs_read, n_threads, n_reqs, page_size);
         else
-            write_file<<<g_size, b_size>>>(h_pc.pdt.d_ctrls, d_pc, n_threads, n_reqs, page_size);
+            access_file<<<g_size, b_size>>>(h_pc.pdt.d_ctrls, d_pc, nvme_cmd_nfs_write, n_threads, n_reqs, page_size);
 
         Event after;
 

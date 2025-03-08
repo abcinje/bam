@@ -2158,8 +2158,8 @@ enum nvme_opcode_nfs {
 __device__ uint32_t root_handle, file_handle;
 
 __device__
-void nfs_write(QueuePair *qp, page_cache_d_t *pc, uint32_t pc_entry,
-        uint32_t offset, uint32_t count,
+void nfs_rw(QueuePair *qp, page_cache_d_t *pc, uint32_t pc_entry,
+        uint8_t opcode, uint32_t offset, uint32_t count,
         uint32_t *result, uint32_t *result_count)
 {
     nvm_cmd_t cmd;
@@ -2168,44 +2168,7 @@ void nfs_write(QueuePair *qp, page_cache_d_t *pc, uint32_t pc_entry,
     // Fill in command
     uint16_t cid = get_cid(&qp->sq);
     memset(&cmd, 0, sizeof(nvm_cmd_t));
-    nvm_cmd_header(&cmd, cid, nvme_cmd_nfs_write, qp->nvmNamespace);
-    cmd.dword[2] = file_handle;
-    cmd.dword[10] = offset;
-    cmd.dword[11] = count;
-
-    // Set PRP
-    uint64_t prp1 = pc->prp1[pc_entry];
-    uint64_t prp2 = pc->prps ? pc->prp2[pc_entry] : 0;
-    cmd.dword[6] = (uint32_t)prp1;
-    cmd.dword[7] = (uint32_t)(prp1 >> 32);
-    cmd.dword[8] = (uint32_t)prp2;
-    cmd.dword[9] = (uint32_t)(prp2 >> 32);
-
-    // Process command
-    uint16_t sq_pos = sq_enqueue(&qp->sq, &cmd);
-    uint32_t cq_pos = cq_poll(&qp->cq, cid, NULL, NULL, &status, &res0);
-    cq_dequeue(&qp->cq, cq_pos, &qp->sq);
-    put_cid(&qp->sq, cid);
-
-    // Set results
-    *result = status;
-    *result_count = res0;
-
-    NFS_DEBUG("write: file(%u) offset(%u) count(%u) res(%u) res_count(%u)\n", file_handle, offset, count, *result, *result_count);
-}
-
-__device__
-void nfs_read(QueuePair *qp, page_cache_d_t *pc, uint32_t pc_entry,
-        uint32_t offset, uint32_t count,
-        uint32_t *result, uint32_t *result_count)
-{
-    nvm_cmd_t cmd;
-    uint32_t status, res0;
-
-    // Fill in command
-    uint16_t cid = get_cid(&qp->sq);
-    memset(&cmd, 0, sizeof(nvm_cmd_t));
-    nvm_cmd_header(&cmd, cid, nvme_cmd_nfs_read, qp->nvmNamespace);
+    nvm_cmd_header(&cmd, cid, opcode, qp->nvmNamespace);
     cmd.dword[2] = file_handle;
     cmd.dword[10] = offset;
     cmd.dword[11] = count;
@@ -2228,7 +2191,7 @@ void nfs_read(QueuePair *qp, page_cache_d_t *pc, uint32_t pc_entry,
     *result = status;
     *result_count = res0 & 0x7FFFFFFF;  // Ignore the EOF bit
 
-    NFS_DEBUG("read: file(%u) offset(%u) count(%u) res(%u) res_count(%u)\n", file_handle, offset, count, *result, *result_count);
+    NFS_DEBUG("rw(0x%x): file(%u) offset(%u) count(%u) res(%u) res_count(%u)\n", opcode, file_handle, offset, count, *result, *result_count);
 }
 
 __global__
