@@ -46,7 +46,7 @@ const char* const ctrls_paths[] = {"/dev/libnvm0", "/dev/libnvm1", "/dev/libnvm2
 #define SIZE (8*4096)
 
 __global__ __launch_bounds__(64, 32)
-void write_file(Controller **ctrls, page_cache_d_t *pc, uint32_t n_threads, uint32_t io_size)
+void write_file(Controller **ctrls, page_cache_d_t *pc, uint32_t n_threads, uint32_t n_reqs, uint32_t io_size)
 {
     uint32_t result, result_count;
 
@@ -64,7 +64,8 @@ void write_file(Controller **ctrls, page_cache_d_t *pc, uint32_t n_threads, uint
         uint32_t offset = tid * io_size;
         uint32_t count = io_size;
 
-        nfs_write(ctrls[ctrl]->d_qps + queue, pc, tid, offset, count, &result, &result_count);
+        for (uint32_t i = 0; i < n_reqs; i++)
+            nfs_write(ctrls[ctrl]->d_qps + queue, pc, tid, offset, count, &result, &result_count);
     }
 
     // if (result != 0 || result_count != io_size)
@@ -72,7 +73,7 @@ void write_file(Controller **ctrls, page_cache_d_t *pc, uint32_t n_threads, uint
 }
 
 __global__ __launch_bounds__(64, 32)
-void read_file(Controller **ctrls, page_cache_d_t *pc, uint32_t n_threads, uint32_t io_size)
+void read_file(Controller **ctrls, page_cache_d_t *pc, uint32_t n_threads, uint32_t n_reqs, uint32_t io_size)
 {
     uint32_t result, result_count;
 
@@ -90,7 +91,8 @@ void read_file(Controller **ctrls, page_cache_d_t *pc, uint32_t n_threads, uint3
         uint32_t offset = tid * io_size;
         uint32_t count = io_size;
 
-        nfs_read(ctrls[ctrl]->d_qps + queue, pc, tid, offset, count, &result, &result_count);
+        for (uint32_t i = 0; i < n_reqs; i++)
+            nfs_read(ctrls[ctrl]->d_qps + queue, pc, tid, offset, count, &result, &result_count);
     }
 
     // if (result != 0 || result_count != io_size)
@@ -133,8 +135,8 @@ int main(int argc, char** argv)
         uint64_t page_size = settings.pageSize;
         uint64_t n_pages = settings.numPages;
         uint64_t access_type = settings.accessType;
-        uint64_t num_reqs = settings.numReqs;
-        uint64_t ios = g_size * b_size * num_reqs;
+        uint64_t n_reqs = settings.numReqs;
+        uint64_t ios = g_size * b_size * n_reqs;
         uint64_t data = ios * page_size;
 
         if (n_pages < n_threads) {
@@ -143,10 +145,6 @@ int main(int argc, char** argv)
         }
         if (access_type != READ && access_type != WRITE) {
             std::cerr << "Invalid access type\n";
-            exit(1);
-        }
-        if (num_reqs != 1) {
-            std::cerr << "Number of requests must be 1\n";
             exit(1);
         }
         if (page_size & 0xfff) {
@@ -241,7 +239,7 @@ int main(int argc, char** argv)
 
 #ifndef IO_VERIFY
         if (access_type == READ) {
-            write_file<<<g_size, b_size>>>(h_pc.pdt.d_ctrls, d_pc, n_threads, page_size);
+            write_file<<<g_size, b_size>>>(h_pc.pdt.d_ctrls, d_pc, n_threads, 1, page_size);
             cuda_err_chk(cudaDeviceSynchronize());
 
             std::cout << "Preconditioning finished. Sleep for 10 seconds..." << std::endl;
@@ -253,9 +251,9 @@ int main(int argc, char** argv)
 
         // Launch kernel
         if (access_type == READ)
-            read_file<<<g_size, b_size>>>(h_pc.pdt.d_ctrls, d_pc, n_threads, page_size);
+            read_file<<<g_size, b_size>>>(h_pc.pdt.d_ctrls, d_pc, n_threads, n_reqs, page_size);
         else
-            write_file<<<g_size, b_size>>>(h_pc.pdt.d_ctrls, d_pc, n_threads, page_size);
+            write_file<<<g_size, b_size>>>(h_pc.pdt.d_ctrls, d_pc, n_threads, n_reqs, page_size);
 
         Event after;
 
