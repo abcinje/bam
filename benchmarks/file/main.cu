@@ -265,27 +265,27 @@ int main(int argc, char** argv)
 
         Event before;
 
-
+        uint8_t opcode = access_type == READ ? nvme_cmd_nfs_read : nvme_cmd_nfs_write;
 #ifdef IO_ASYNC
         switch (n_reqs) {
         case 1:
-            access_file_async<1><<<g_size, b_size>>>(h_pc.pdt.d_ctrls, d_pc, access_type == READ ? nvme_cmd_nfs_read : nvme_cmd_nfs_write, n_threads, page_size);
+            access_file_async<1><<<g_size, b_size>>>(h_pc.pdt.d_ctrls, d_pc, opcode, n_threads, page_size);
             break;
         case 2:
-            access_file_async<2><<<g_size, b_size>>>(h_pc.pdt.d_ctrls, d_pc, access_type == READ ? nvme_cmd_nfs_read : nvme_cmd_nfs_write, n_threads, page_size);
+            access_file_async<2><<<g_size, b_size>>>(h_pc.pdt.d_ctrls, d_pc, opcode, n_threads, page_size);
             break;
         case 3:
-            access_file_async<3><<<g_size, b_size>>>(h_pc.pdt.d_ctrls, d_pc, access_type == READ ? nvme_cmd_nfs_read : nvme_cmd_nfs_write, n_threads, page_size);
+            access_file_async<3><<<g_size, b_size>>>(h_pc.pdt.d_ctrls, d_pc, opcode, n_threads, page_size);
             break;
         case 4:
-            access_file_async<4><<<g_size, b_size>>>(h_pc.pdt.d_ctrls, d_pc, access_type == READ ? nvme_cmd_nfs_read : nvme_cmd_nfs_write, n_threads, page_size);
+            access_file_async<4><<<g_size, b_size>>>(h_pc.pdt.d_ctrls, d_pc, opcode, n_threads, page_size);
             break;
         default:
             std::cerr << "Invalid number of requests\n";
             exit(1);
         }
 #else
-        access_file<<<g_size, b_size>>>(h_pc.pdt.d_ctrls, d_pc, access_type == READ ? nvme_cmd_nfs_read : nvme_cmd_nfs_write, n_threads, n_reqs, page_size);
+        access_file<<<g_size, b_size>>>(h_pc.pdt.d_ctrls, d_pc, opcode, n_threads, n_reqs, page_size);
 #endif
 
         Event after;
