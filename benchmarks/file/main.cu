@@ -48,7 +48,7 @@ const char* const ctrls_paths[] = {"/dev/libnvm0", "/dev/libnvm1", "/dev/libnvm2
 #define SIZE (8*4096)
 
 __global__ __launch_bounds__(64, 32)
-void access_file(Controller **ctrls, page_cache_d_t *pc, uint8_t opcode, uint32_t n_threads, uint32_t n_reqs, uint32_t io_size)
+void access_file(Controller **ctrls, page_cache_d_t *pc, uint8_t opcode, uint32_t n_threads, uint32_t n_reqs, uint32_t io_size, uint64_t *assignment)
 {
     uint32_t result, result_count;
 
@@ -63,7 +63,7 @@ void access_file(Controller **ctrls, page_cache_d_t *pc, uint8_t opcode, uint32_
     queue = __shfl_sync(0xFFFFFFFF, queue, 0);
 
     if (tid < n_threads) {
-        uint32_t offset = tid * io_size;
+        uint32_t offset = (assignment ? assignment[tid] : tid) * io_size;
         uint32_t count = io_size;
 
         for (uint32_t i = 0; i < n_reqs; i++)
@@ -76,7 +76,7 @@ void access_file(Controller **ctrls, page_cache_d_t *pc, uint8_t opcode, uint32_
 
 template <uint32_t n_reqs>
 __global__ __launch_bounds__(64, 32)
-void access_file_async(Controller **ctrls, page_cache_d_t *pc, uint8_t opcode, uint32_t n_threads, uint32_t io_size)
+void access_file_async(Controller **ctrls, page_cache_d_t *pc, uint8_t opcode, uint32_t n_threads, uint32_t io_size, uint64_t *assignment)
 {
     uint32_t result, result_count;
 
@@ -91,7 +91,7 @@ void access_file_async(Controller **ctrls, page_cache_d_t *pc, uint8_t opcode, u
     queue = __shfl_sync(0xFFFFFFFF, queue, 0);
 
     if (tid < n_threads) {
-        uint32_t offset = tid * io_size;
+        uint32_t offset = (assignment ? assignment[tid] : tid) * io_size;
         uint32_t count = io_size;
 
         uint16_t cids[n_reqs];
@@ -148,6 +148,7 @@ int main(int argc, char** argv)
         uint64_t n_reqs = settings.numReqs;
         uint64_t ios = g_size * b_size * n_reqs;
         uint64_t data = ios * page_size;
+        uint64_t n_blocks = settings.numBlks;
 
         if (n_pages < n_threads) {
             std::cerr << "Please provide enough pages. Number of pages must be greater than or equal to the number of threads!\n";
@@ -165,6 +166,11 @@ int main(int argc, char** argv)
 #endif
         if (page_size & 0xfff) {
             std::cerr << "Page size must be a multiple of 4096\n";
+            exit(1);
+        }
+        
+        if (n_threads < n_blocks) {
+            std::cerr << "Number of blocks larger than number of threads may cause accesses beyond the end of the file\n";
             exit(1);
         }
 
@@ -255,7 +261,7 @@ int main(int argc, char** argv)
 
 #ifndef IO_VERIFY
         if (access_type == READ) {
-            access_file<<<g_size, b_size>>>(h_pc.pdt.d_ctrls, d_pc, nvme_cmd_nfs_write, n_threads, 1, page_size);
+            access_file<<<g_size, b_size>>>(h_pc.pdt.d_ctrls, d_pc, nvme_cmd_nfs_write, n_threads, 1, page_size, nullptr);
             cuda_err_chk(cudaDeviceSynchronize());
 
             std::cout << "Preconditioning finished. Sleep for 10 seconds..." << std::endl;
@@ -263,29 +269,40 @@ int main(int argc, char** argv)
         }
 #endif
 
+        uint64_t* assignment;
+        uint64_t* d_assignment = nullptr;
+        if (settings.random) {
+            assignment = (uint64_t*) malloc(n_threads*sizeof(uint64_t));
+            for (size_t i = 0; i < n_threads; i++)
+                assignment[i] = rand() % (n_blocks);
+
+            cuda_err_chk(cudaMalloc(&d_assignment, n_threads*sizeof(uint64_t)));
+            cuda_err_chk(cudaMemcpy(d_assignment, assignment,  n_threads*sizeof(uint64_t), cudaMemcpyHostToDevice));
+        }
+
         Event before;
 
         uint8_t opcode = access_type == READ ? nvme_cmd_nfs_read : nvme_cmd_nfs_write;
 #ifdef IO_ASYNC
         switch (n_reqs) {
         case 1:
-            access_file_async<1><<<g_size, b_size>>>(h_pc.pdt.d_ctrls, d_pc, opcode, n_threads, page_size);
+            access_file_async<1><<<g_size, b_size>>>(h_pc.pdt.d_ctrls, d_pc, opcode, n_threads, page_size, d_assignment);
             break;
         case 2:
-            access_file_async<2><<<g_size, b_size>>>(h_pc.pdt.d_ctrls, d_pc, opcode, n_threads, page_size);
+            access_file_async<2><<<g_size, b_size>>>(h_pc.pdt.d_ctrls, d_pc, opcode, n_threads, page_size, d_assignment);
             break;
         case 3:
-            access_file_async<3><<<g_size, b_size>>>(h_pc.pdt.d_ctrls, d_pc, opcode, n_threads, page_size);
+            access_file_async<3><<<g_size, b_size>>>(h_pc.pdt.d_ctrls, d_pc, opcode, n_threads, page_size, d_assignment);
             break;
         case 4:
-            access_file_async<4><<<g_size, b_size>>>(h_pc.pdt.d_ctrls, d_pc, opcode, n_threads, page_size);
+            access_file_async<4><<<g_size, b_size>>>(h_pc.pdt.d_ctrls, d_pc, opcode, n_threads, page_size, d_assignment);
             break;
         default:
             std::cerr << "Invalid number of requests\n";
             exit(1);
         }
 #else
-        access_file<<<g_size, b_size>>>(h_pc.pdt.d_ctrls, d_pc, opcode, n_threads, n_reqs, page_size);
+        access_file<<<g_size, b_size>>>(h_pc.pdt.d_ctrls, d_pc, opcode, n_threads, n_reqs, page_size, d_assignment);
 #endif
 
         Event after;
