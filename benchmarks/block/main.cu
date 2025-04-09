@@ -317,6 +317,15 @@ int main(int argc, char** argv) {
         char st[15];
         cuda_err_chk(cudaDeviceGetPCIBusId(st, 15, settings.cudaDevice));
         std::cout << st << std::endl;
+
+        if (settings.accessType == READ) {
+            sequential_access_kernel<<<g_size, b_size>>>(h_pc.pdt.d_ctrls, d_pc, page_size, n_threads, d_req_count, settings.n_ctrls, 1, WRITE, NULL);
+            cuda_err_chk(cudaDeviceSynchronize());
+
+            std::cout << "Preconditioning finished. Sleep for 10 seconds..." << std::endl;
+            std::this_thread::sleep_for(std::chrono::seconds(10));
+        }
+
         uint64_t* assignment;
         uint64_t* d_assignment;
         if (settings.random) {
