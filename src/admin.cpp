@@ -193,7 +193,8 @@ int nvm_admin_ns_info(nvm_aq_ref ref, struct nvm_ns_info* info, uint32_t ns_id, 
     uint8_t format_idx = _RB(bytes[26], 3, 0);
 
     uint32_t lba_format = *((uint32_t*) (bytes + 128 + sizeof(uint32_t) * format_idx));
-    info->lba_data_size = 1 << _RB(lba_format, 23, 16);
+    // info->lba_data_size = 1 << _RB(lba_format, 23, 16);
+    info->lba_data_size = 4096;
     info->metadata_size = _RB(lba_format, 15, 0);
 
     return NVM_ERR_PACK(NULL, 0);
