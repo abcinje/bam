@@ -96,6 +96,21 @@ __device__ void read_data(page_cache_t* pc, QueuePair* qp, const uint64_t starti
 }
 
 */
+
+__global__
+void precond_kernel(Controller** ctrls, page_cache_d_t* pc,  uint32_t req_size, uint32_t n_reqs) {
+    uint64_t tid = blockIdx.x * blockDim.x + threadIdx.x;
+    uint32_t ctrl = 0;
+    uint32_t queue = 0;
+
+    if (tid == 0)
+        for (size_t i = 0; i < n_reqs; i++) {
+            uint64_t start_block = (i*req_size) >> ctrls[ctrl]->d_qps[queue].block_size_log;
+            uint64_t n_blocks = req_size >> ctrls[ctrl]->d_qps[queue].block_size_log;
+            write_data(pc, (ctrls[ctrl]->d_qps)+(queue), start_block, n_blocks, tid);
+        }
+}
+
 __global__ __launch_bounds__(64,32)
 void sequential_access_kernel(Controller** ctrls, page_cache_d_t* pc,  uint32_t req_size, uint32_t n_reqs, unsigned long long* req_count, uint32_t num_ctrls, uint64_t reqs_per_thread, uint32_t access_type, uint8_t* access_type_assignment) {
     //printf("in threads\n");
@@ -319,7 +334,7 @@ int main(int argc, char** argv) {
         std::cout << st << std::endl;
 
         if (settings.accessType == READ) {
-            sequential_access_kernel<<<g_size, b_size>>>(h_pc.pdt.d_ctrls, d_pc, page_size, n_threads, d_req_count, settings.n_ctrls, 1, WRITE, NULL);
+            precond_kernel<<<1, 1>>>(h_pc.pdt.d_ctrls, d_pc, page_size, n_blocks);
             cuda_err_chk(cudaDeviceSynchronize());
 
             std::cout << "Preconditioning finished. Sleep for 10 seconds..." << std::endl;
