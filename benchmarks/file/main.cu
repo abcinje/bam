@@ -148,7 +148,6 @@ int main(int argc, char** argv)
         uint64_t n_reqs = settings.numReqs;
         uint64_t ios = g_size * b_size * n_reqs;
         uint64_t data = ios * page_size;
-        uint64_t n_blocks = settings.numBlks;
 
         if (n_pages < n_threads) {
             std::cerr << "Please provide enough pages. Number of pages must be greater than or equal to the number of threads!\n";
@@ -169,11 +168,6 @@ int main(int argc, char** argv)
             exit(1);
         }
         
-        if (n_threads < n_blocks) {
-            std::cerr << "Number of blocks larger than number of threads may cause accesses beyond the end of the file\n";
-            exit(1);
-        }
-
         // Create page cache
         page_cache_t h_pc(page_size, n_pages, settings.cudaDevice, ctrls[0][0], (uint64_t) 64, ctrls);
         page_cache_d_t* d_pc = (page_cache_d_t*) (h_pc.d_pc_ptr);
@@ -274,7 +268,7 @@ int main(int argc, char** argv)
         if (settings.random) {
             assignment = (uint64_t*) malloc(n_threads*sizeof(uint64_t));
             for (size_t i = 0; i < n_threads; i++)
-                assignment[i] = rand() % (n_blocks);
+                assignment[i] = rand() % n_threads;
 
             cuda_err_chk(cudaMalloc(&d_assignment, n_threads*sizeof(uint64_t)));
             cuda_err_chk(cudaMemcpy(d_assignment, assignment,  n_threads*sizeof(uint64_t), cudaMemcpyHostToDevice));
