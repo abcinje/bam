@@ -253,16 +253,6 @@ int main(int argc, char** argv)
             }
         }
 
-#ifndef IO_VERIFY
-        if (access_type == READ) {
-            access_file<<<g_size, b_size>>>(h_pc.pdt.d_ctrls, d_pc, nvme_cmd_nfs_write, n_threads, 1, page_size, nullptr);
-            cuda_err_chk(cudaDeviceSynchronize());
-
-            std::cout << "Preconditioning finished. Sleep for 10 seconds..." << std::endl;
-            std::this_thread::sleep_for(std::chrono::seconds(10));
-        }
-#endif
-
         uint64_t* assignment;
         uint64_t* d_assignment = nullptr;
         if (settings.random) {
