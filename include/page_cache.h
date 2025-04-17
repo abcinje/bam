@@ -2034,7 +2034,7 @@ inline __device__ void read_data(page_cache_d_t* pc, QueuePair* qp, const uint64
 
 
     //enqueue_second(page_cache_d_t* pc, QueuePair* qp, const uint64_t starting_lba, nvm_cmd_t* cmd, const uint16_t cid, const uint64_t pc_pos, const uint64_t pc_prev_head)
-    enqueue_second(pc, qp, starting_lba, &cmd, cid, pc_pos, pc_prev_head);
+    //enqueue_second(pc, qp, starting_lba, &cmd, cid, pc_pos, pc_prev_head);
 
 
 
