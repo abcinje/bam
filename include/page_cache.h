@@ -2155,11 +2155,11 @@ enum nvme_opcode_nfs {
 };
 #endif
 
-__device__ uint32_t root_handle, file_handle;
+__device__ uint32_t root_handle;
 
 __device__
 void nfs_rw(QueuePair *qp, page_cache_d_t *pc, uint32_t pc_entry,
-        uint8_t opcode, uint32_t offset, uint32_t count,
+        uint32_t file_handle, uint8_t opcode, uint32_t offset, uint32_t count,
         uint32_t *result, uint32_t *result_count)
 {
     nvm_cmd_t cmd;
@@ -2196,7 +2196,7 @@ void nfs_rw(QueuePair *qp, page_cache_d_t *pc, uint32_t pc_entry,
 
 __device__
 void nfs_rw_submit(QueuePair *qp, page_cache_d_t *pc, uint32_t pc_entry,
-        uint16_t *cid, uint8_t opcode, uint32_t offset, uint32_t count)
+        uint16_t *cid, uint32_t file_handle, uint8_t opcode, uint32_t offset, uint32_t count)
 {
     nvm_cmd_t cmd;
 
@@ -2235,7 +2235,7 @@ void nfs_rw_wait(QueuePair *qp, uint16_t cid, uint32_t *result, uint32_t *result
 }
 
 __global__
-void nfs_lookup(QueuePair *qp, uint32_t *result, char *name, uint32_t name_len)
+void nfs_lookup(QueuePair *qp, uint32_t *result, uint32_t *file_handle, char *name, uint32_t name_len)
 {
     nvm_cmd_t cmd;
     uint32_t status, res0;
@@ -2261,13 +2261,13 @@ void nfs_lookup(QueuePair *qp, uint32_t *result, char *name, uint32_t name_len)
     // Set file handle
     *result = status;
     if (status == 0)
-        file_handle = res0;
+        *file_handle = res0;
 
-    NFS_DEBUG("lookup: name(%s) res(%u) handle(%u)\n", name, *result, file_handle);
+    NFS_DEBUG("lookup: name(%s) res(%u) handle(%u)\n", name, *result, *file_handle);
 }
 
 __global__
-void nfs_create(QueuePair *qp, uint32_t *result, char *name, uint16_t name_len, uint16_t mode)
+void nfs_create(QueuePair *qp, uint32_t *result, uint32_t *file_handle, char *name, uint16_t name_len, uint16_t mode)
 {
     nvm_cmd_t cmd;
     uint32_t status, res0;
@@ -2293,9 +2293,9 @@ void nfs_create(QueuePair *qp, uint32_t *result, char *name, uint16_t name_len, 
     // Set file handle
     *result = status;
     if (status == 0)
-        file_handle = res0;
+        *file_handle = res0;
 
-    NFS_DEBUG("create: name(%s) res(%u) handle(%u)\n", name, *result, file_handle);
+    NFS_DEBUG("create: name(%s) res(%u) handle(%u)\n", name, *result, *file_handle);
 }
 
 __global__

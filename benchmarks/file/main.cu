@@ -48,7 +48,7 @@ const char* const ctrls_paths[] = {"/dev/libnvm0", "/dev/libnvm1", "/dev/libnvm2
 #define SIZE (8*4096)
 
 __global__ __launch_bounds__(64, 32)
-void access_file(Controller **ctrls, page_cache_d_t *pc, uint8_t opcode, uint32_t n_threads, uint32_t n_reqs, uint32_t io_size, uint64_t *assignment)
+void access_file(Controller **ctrls, page_cache_d_t *pc, uint32_t fh, uint8_t opcode, uint32_t n_threads, uint32_t n_reqs, uint32_t io_size, uint64_t *assignment)
 {
     uint32_t result, result_count;
 
@@ -67,7 +67,7 @@ void access_file(Controller **ctrls, page_cache_d_t *pc, uint8_t opcode, uint32_
         uint32_t count = io_size;
 
         for (uint32_t i = 0; i < n_reqs; i++)
-            nfs_rw(ctrls[ctrl]->d_qps + queue, pc, tid, opcode, offset, count, &result, &result_count);
+            nfs_rw(ctrls[ctrl]->d_qps + queue, pc, tid, fh, opcode, offset, count, &result, &result_count);
     }
 
     // if (result != 0 || result_count != io_size)
@@ -76,7 +76,7 @@ void access_file(Controller **ctrls, page_cache_d_t *pc, uint8_t opcode, uint32_
 
 template <uint32_t n_reqs>
 __global__ __launch_bounds__(64, 32)
-void access_file_async(Controller **ctrls, page_cache_d_t *pc, uint8_t opcode, uint32_t n_threads, uint32_t io_size, uint64_t *assignment)
+void access_file_async(Controller **ctrls, page_cache_d_t *pc, uint32_t fh, uint8_t opcode, uint32_t n_threads, uint32_t io_size, uint64_t *assignment)
 {
     uint32_t result, result_count;
 
@@ -98,7 +98,7 @@ void access_file_async(Controller **ctrls, page_cache_d_t *pc, uint8_t opcode, u
 
         #pragma unroll
         for (uint32_t i = 0; i < n_reqs; i++)
-            nfs_rw_submit(ctrls[ctrl]->d_qps + queue, pc, tid, cids + i, opcode, offset, count);
+            nfs_rw_submit(ctrls[ctrl]->d_qps + queue, pc, tid, cids + i, fh, opcode, offset, count);
 
         #pragma unroll
         for (uint32_t i = 0; i < n_reqs; i++)
@@ -203,9 +203,10 @@ int main(int argc, char** argv)
         }
 #endif
 
-        // Status
-        uint32_t result, *__result;
+        // Status & file handle (assuming that only one file is accessed for now)
+        uint32_t result, *__result, fh, *__fh;
         cuda_err_chk(cudaMalloc(&__result, sizeof(uint32_t)));
+        cuda_err_chk(cudaMalloc(&__fh, sizeof(uint32_t)));
 
         // Mount
         nfs_mount<<<1, 1>>>(ctrls[0]->d_qps, __result);
@@ -227,11 +228,12 @@ int main(int argc, char** argv)
         cuda_err_chk(cudaMemcpy(__filename, FILENAME, filename_len, cudaMemcpyHostToDevice));
 
         // Lookup
-        nfs_lookup<<<1, 1>>>(ctrls[0]->d_qps, __result, __filename, filename_len);
+        nfs_lookup<<<1, 1>>>(ctrls[0]->d_qps, __result, __fh, __filename, filename_len);
         cuda_err_chk(cudaDeviceSynchronize());
         cuda_err_chk(cudaMemcpy(&result, __result, sizeof(uint32_t), cudaMemcpyDeviceToHost));
+        cuda_err_chk(cudaMemcpy(&fh, __fh, sizeof(uint32_t), cudaMemcpyDeviceToHost));
         if (result == 0) {
-            std::cout << "File found: " << FILENAME << std::endl;
+            std::cout << "File found: " << FILENAME << " (handle " << fh << ')' << std::endl;
         } else if (result == ENOENT) {
             std::cout << "File not found: " << FILENAME << std::endl;
         } else {
@@ -241,11 +243,12 @@ int main(int argc, char** argv)
 
         // Create if not found
         if (result == ENOENT) {
-            nfs_create<<<1, 1>>>(ctrls[0]->d_qps, __result, __filename, filename_len, 0664);
+            nfs_create<<<1, 1>>>(ctrls[0]->d_qps, __result, __fh, __filename, filename_len, 0664);
             cuda_err_chk(cudaDeviceSynchronize());
             cuda_err_chk(cudaMemcpy(&result, __result, sizeof(uint32_t), cudaMemcpyDeviceToHost));
+            cuda_err_chk(cudaMemcpy(&fh, __fh, sizeof(uint32_t), cudaMemcpyDeviceToHost));
             if (result == 0) {
-                std::cout << "File created: " << FILENAME << std::endl;
+                std::cout << "File created: " << FILENAME << " (handle " << fh << ')' << std::endl;
             } else if (result == EEXIST) {
                 std::cout << "File already exists: " << FILENAME << std::endl;
             } else {
@@ -271,23 +274,23 @@ int main(int argc, char** argv)
 #ifdef IO_ASYNC
         switch (n_reqs) {
         case 1:
-            access_file_async<1><<<g_size, b_size>>>(h_pc.pdt.d_ctrls, d_pc, opcode, n_threads, page_size, d_assignment);
+            access_file_async<1><<<g_size, b_size>>>(h_pc.pdt.d_ctrls, d_pc, fh, opcode, n_threads, page_size, d_assignment);
             break;
         case 2:
-            access_file_async<2><<<g_size, b_size>>>(h_pc.pdt.d_ctrls, d_pc, opcode, n_threads, page_size, d_assignment);
+            access_file_async<2><<<g_size, b_size>>>(h_pc.pdt.d_ctrls, d_pc, fh, opcode, n_threads, page_size, d_assignment);
             break;
         case 3:
-            access_file_async<3><<<g_size, b_size>>>(h_pc.pdt.d_ctrls, d_pc, opcode, n_threads, page_size, d_assignment);
+            access_file_async<3><<<g_size, b_size>>>(h_pc.pdt.d_ctrls, d_pc, fh, opcode, n_threads, page_size, d_assignment);
             break;
         case 4:
-            access_file_async<4><<<g_size, b_size>>>(h_pc.pdt.d_ctrls, d_pc, opcode, n_threads, page_size, d_assignment);
+            access_file_async<4><<<g_size, b_size>>>(h_pc.pdt.d_ctrls, d_pc, fh, opcode, n_threads, page_size, d_assignment);
             break;
         default:
             std::cerr << "Invalid number of requests\n";
             exit(1);
         }
 #else
-        access_file<<<g_size, b_size>>>(h_pc.pdt.d_ctrls, d_pc, opcode, n_threads, n_reqs, page_size, d_assignment);
+        access_file<<<g_size, b_size>>>(h_pc.pdt.d_ctrls, d_pc, fh, opcode, n_threads, n_reqs, page_size, d_assignment);
 #endif
 
         Event after;
