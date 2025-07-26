@@ -8,6 +8,6 @@ find_package (CUDA 8.0 REQUIRED)
 
 
 
-make_benchmark (kvcache-file-benchmark-module kvcache-file-bench "kvcache_reader.cc")
+make_benchmark (kvcache-file-benchmark-module kvcache-file-bench "main.cu")
 
 make_benchmark_choice (kvcache-file-benchmark kvcache-file-benchmark-smartio kvcache-file-benchmark-module)
