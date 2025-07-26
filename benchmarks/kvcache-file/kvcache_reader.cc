@@ -11,15 +11,17 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <cuda_runtime.h>
-#include "phoenix.h"
 #include "kvcache_reader.hh"
+#ifdef BASELINE
+#include "phoenix.h"
 #include "cufile_sample_utils.h"
+#endif
 
 uint64_t block_size = 16 * 1024;  // default value
 uint64_t MAX_BLOCKS_SIZE = 16 * 1024 * 1024; // 16MB
 std::string block_file = "/mnt/phxfs/data.bin";
 
-
+#ifdef BASELINE
 CuFileKVCacheReader::CuFileKVCacheReader(size_t max_batch_size_): max_batch_size(max_batch_size_) {
     CUfileError_t status = cuFileDriverOpen();
     if (status.err != CU_FILE_SUCCESS) {
@@ -420,42 +422,84 @@ PhxfsKVCacheReader::~PhxfsKVCacheReader() {
     close(fd);
     phxfs_close(this->device_id);
 }
+#endif
+
+FlashNFSKVCacheReader::FlashNFSKVCacheReader() {
+    // TODO
+}
+
+FlashNFSKVCacheReader::~FlashNFSKVCacheReader() {
+    // TODO
+}
+
+void FlashNFSKVCacheReader::load_sequences(const std::string& trace_file) {
+    std::ifstream file(trace_file);
+    if (!file) {
+        throw std::runtime_error("Cannot open trace file: " + trace_file);
+    }
+
+    std::string line;
+    Sequence current_seq;
+    
+    while (std::getline(file, line)) {
+        if (line.find("Seq") == 0) {  // 新序列开始
+            if (!current_seq.id.empty()) {
+                sequences.push_back(current_seq);
+            }
+            current_seq = Sequence();
+            // 提取序列ID
+            size_t pos = line.find("conversation id: ");
+            if (pos != std::string::npos) {
+                current_seq.id = line.substr(pos + 17);
+                current_seq.id = current_seq.id.substr(0, current_seq.id.find(")"));
+            }
+        } else if (line.find("Round") == 0 && line.find("[") != std::string::npos) {  // 包含block IDs的行
+            size_t start = line.find("[");
+            size_t end = line.find("]");
+            if (start != std::string::npos && end != std::string::npos) {
+                std::string numbers = line.substr(start + 1, end - start - 1);
+                std::stringstream ss(numbers);
+                std::string number;
+                while (std::getline(ss, number, ',')) {
+                    // 去除前后空格
+                    number.erase(0, number.find_first_not_of(" "));
+                    number.erase(number.find_last_not_of(" ") + 1);
+                    if (!number.empty()) {
+                        current_seq.block_ids.push_back(std::stoul(number));
+                    }
+                }
+            }
+        }
+    }
+    
+    if (!current_seq.id.empty()) {
+        sequences.push_back(current_seq);
+    }
+
+    std::cout << "Loaded " << sequences.size() << " sequences" << std::endl;
+}
+
+void FlashNFSKVCacheReader::process_all_sequences() {
+    // TODO
+}
 
 int main(int argc, char** argv) {
-    if (argc != 6) {
-        std::cerr << "Usage: " << argv[0] << " <type: phxfs|gds> <gpu_id> <trace_file> <block_size>" << std::endl;
+    if (argc != 3) {
+        std::cerr << "Usage: " << argv[0] << " <trace_file> <block_size>" << std::endl;
         return 1;
     }
 
-    int type = 0;
-    std::string type_str = std::string(argv[1]);
-    int gpu_id = atoi(argv[2]);
-    std::string trace_file = argv[3];
-    block_size = atoll(argv[4]);
-    block_file = argv[5];
-
-    type = type_str == "phxfs" ? 0 : 1;
+    std::string trace_file = argv[1];
+    block_size = atoll(argv[2]);
 
     std::cout << "KVCache Reader: " << std::endl
-            << "  Type: " << type << std::endl
-            << "  GPU ID: " << gpu_id << std::endl
             << "  Trace File: " << trace_file << std::endl
-            << "  Block Size: " << block_size << std::endl
-            << "  Block File: " << block_file << std::endl;
+            << "  Block Size: " << block_size << std::endl;
 
     try {
-        cudaSetDevice(gpu_id);
-
-        BaseKVCacheReader *reader = nullptr;
-        if (type == 0) {
-            reader = new PhxfsKVCacheReader();
-        } else if (type == 1) {
-            reader = new CuFileKVCacheReader();
-        } else {
-            throw std::invalid_argument("Invalid reader type");
-        }
+        BaseKVCacheReader *reader = new FlashNFSKVCacheReader();
         reader->load_sequences(trace_file);
-        reader->process_all_sequences();
+        // TODO: reader->process_all_sequences();
         delete reader;
     } catch (const std::exception& e) {
         std::cerr << "Error: " << e.what() << std::endl;

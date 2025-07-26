@@ -21,6 +21,7 @@ public:
     virtual ~BaseKVCacheReader() {}
 };
 
+#ifdef BASELINE
 class PhxfsKVCacheReader : public BaseKVCacheReader {
 public:
     PhxfsKVCacheReader(size_t max_batch_size = 2048, int device_id = 0);
@@ -51,6 +52,18 @@ private:
     void **devPtrs;
     std::vector<Sequence> sequences;
     size_t max_batch_size;
+};
+#endif
+
+class FlashNFSKVCacheReader : public BaseKVCacheReader {
+public:
+    FlashNFSKVCacheReader();
+    ~FlashNFSKVCacheReader();
+    void load_sequences(const std::string& trace_file) override;
+    void process_all_sequences() override;
+
+private:
+    std::vector<Sequence> sequences;
 };
 
 #endif // __KVCACHE_READER_HH__
