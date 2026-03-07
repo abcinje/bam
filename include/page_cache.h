@@ -2299,6 +2299,61 @@ void nfs_create(QueuePair *qp, uint32_t *result, uint32_t *file_handle, char *na
 }
 
 __global__
+void nfs_batch_create(QueuePair *qp, uint32_t *result, uint32_t *file_handle, char *name, uint16_t name_len, uint16_t mode)
+{
+    nvm_cmd_t cmd;
+    uint32_t status, res0;
+    const uint64_t block = blockIdx.x + (uint64_t) gridDim.x * (blockIdx.y + (uint64_t) gridDim.y * blockIdx.z);
+    const uint64_t global_tid = block * BLKSIZE + TID;
+    const uint32_t max_name_len = 15;
+    const uint32_t suffix_len = 13;
+    const uint32_t prefix_len = (name_len < (max_name_len - suffix_len)) ? name_len : (max_name_len - suffix_len);
+    char generated_name[max_name_len + 1];
+    uint64_t encoded_tid = global_tid;
+
+    for (uint32_t i = 0; i < prefix_len; i++)
+        generated_name[i] = name[i];
+
+    // Encode the full 64-bit global thread id in fixed-width base36 to stay within 15 chars.
+    for (int32_t i = max_name_len - 1; i >= (int32_t) prefix_len; i--) {
+        uint32_t digit = encoded_tid % 36;
+        generated_name[i] = (digit < 10) ? ('0' + digit) : ('a' + digit - 10);
+        encoded_tid /= 36;
+    }
+    generated_name[max_name_len] = 0;
+
+    // Fill in command
+    uint16_t cid = get_cid(&qp->sq);
+    memset(&cmd, 0, sizeof(nvm_cmd_t));
+    nvm_cmd_header(&cmd, cid, nvme_cmd_nfs_create, qp->nvmNamespace);
+    cmd.dword[2] = root_handle;
+    cmd.dword[3] = (mode << 16) | max_name_len;
+
+    char *cmd_str = (char *)&cmd.dword[10];
+    for (uint32_t i = 0; i < max_name_len; i++)
+        cmd_str[i] = generated_name[i];
+    cmd_str[max_name_len] = 0;
+
+    // Process command
+    uint16_t sq_pos = sq_enqueue(&qp->sq, &cmd);
+    uint32_t cq_pos = cq_poll(&qp->cq, cid, NULL, NULL, &status, &res0);
+    cq_dequeue(&qp->cq, cq_pos, &qp->sq);
+    put_cid(&qp->sq, cid);
+
+    // Set file handle
+    result[global_tid] = status;
+    file_handle[global_tid] = 0;
+    if (status == 0)
+        file_handle[global_tid] = res0;
+
+    NFS_DEBUG("batch create: tid(%llu) name(%s) res(%u) handle(%u)\n",
+        (unsigned long long) global_tid,
+        generated_name,
+        result[global_tid],
+        file_handle[global_tid]);
+}
+
+__global__
 void nfs_mount(QueuePair *qp, uint32_t *result)
 {
     nvm_cmd_t cmd;
