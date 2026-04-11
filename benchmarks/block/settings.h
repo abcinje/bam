@@ -480,7 +480,7 @@ Settings::Settings()
     n_ctrls = 1;
     queueDepth = 16;
     numQueues = 1;
-    pageSize = 4096;
+    pageSize = 512;
     numBlks = 2097152;
     random = true;
     accessType = READ;
