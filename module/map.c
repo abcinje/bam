@@ -148,7 +148,7 @@ static long map_user_pages(struct map* map)
 #warning "Building for older kernel, not properly tested"
     retval = get_user_pages(map->vaddr, map->n_addrs, 1, 0, pages, NULL);
 #else
-    retval = get_user_pages(map->vaddr, map->n_addrs, FOLL_WRITE, pages, NULL);
+    retval = get_user_pages(map->vaddr, map->n_addrs, FOLL_WRITE, pages);
 #endif
     if (retval <= 0)
     {

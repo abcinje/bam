@@ -328,7 +328,7 @@ static int __init libnvm_helper_entry(void)
     }
 
     // Create character device class
-    dev_class = class_create(THIS_MODULE, DRIVER_NAME);
+    dev_class = class_create(DRIVER_NAME);
     if (IS_ERR(dev_class))
     {
         unregister_chrdev_region(dev_first, max_num_ctrls);
