@@ -28,6 +28,7 @@
 #define NEXT_V1
 #define NEXT_V2
 #define NEXT_V3
+#define NEXT_V4
 
 __forceinline__ __device__ uint64_t get_id(uint64_t x, uint64_t y) {
     //return (x >> y);
@@ -473,7 +474,13 @@ uint32_t cq_poll(nvm_queue_t* cq, uint16_t search_cid, uint32_t* loc_ = NULL, ui
 
 inline __device__
 void cq_dequeue(nvm_queue_t* cq, uint16_t pos, nvm_queue_t* sq, uint32_t loc_ = 0, uint32_t cur_head_ = 0) {
+#ifdef NEXT_V4
+    __shared__ uint16_t pos_buf[64];
+#endif
+
+#ifndef NEXT_V4
     cq->tail.fetch_add(1, simt::memory_order_acq_rel);
+#endif
 
     unsigned int ns = 8;
     while ((cq->pos_locks[pos].val.load(simt::memory_order_relaxed) != 0) ) {
@@ -507,13 +514,26 @@ void cq_dequeue(nvm_queue_t* cq, uint16_t pos, nvm_queue_t* sq, uint32_t loc_ = 
 #endif
     }
 
+#ifdef NEXT_V4
+    pos_buf[threadIdx.x] = pos;
+    __syncwarp();
+#endif
+
     //uint32_t pos = cq_poll(cq, cid);
     cq->head_mark[pos].val.store(LOCKED, simt::memory_order_release);
 
+#ifdef NEXT_V4
+    uint32_t laneid = lane_id();
+    if (laneid == 0) {
+#endif
 
     bool cont = true;
     ns = 8;
+
+#ifndef NEXT_V4
     cont = cq->head_mark[pos].val.load(simt::memory_order_relaxed) == LOCKED;
+#endif
+
     while (cont) {
             bool new_cont = cq->head_lock.fetch_or(LOCKED, simt::memory_order_acquire) == LOCKED;
             if (!new_cont) {
@@ -539,7 +559,18 @@ void cq_dequeue(nvm_queue_t* cq, uint16_t pos, nvm_queue_t* sq, uint32_t loc_ = 
                 }
                 cq->head_lock.store(UNLOCKED, simt::memory_order_release);
             }
+
+#ifdef NEXT_V4
+            cont = false;
+            for (int i = 0; i < warpSize; i++) {
+                cont = cont || cq->head_mark[pos_buf[threadIdx.x + i]].val.load(simt::memory_order_relaxed) == LOCKED;
+                if (cont)
+                    break;
+            }
+#else
             cont = cq->head_mark[pos].val.load(simt::memory_order_relaxed) == LOCKED;
+#endif
+
             if (cont) {
 #if defined(__CUDACC__) && (__CUDA_ARCH__ >= 700 || !defined(__CUDA_ARCH__))
                 __nanosleep(ns);
@@ -549,6 +580,10 @@ void cq_dequeue(nvm_queue_t* cq, uint16_t pos, nvm_queue_t* sq, uint32_t loc_ = 
 #endif
             }
     }
+
+#ifdef NEXT_V4
+    }
+#endif
 
 
 	uint64_t j = 0;
