@@ -2035,16 +2035,20 @@ inline __device__ void read_data(page_cache_d_t* pc, QueuePair* qp, const uint64
 
     uint32_t cq_pos = cq_poll(&qp->cq, cid, &head, &head_);
 
+#ifndef NEXT_V3
     qp->cq.tail.fetch_add(1, simt::memory_order_acq_rel);
     pc_prev_head = pc->q_head->load(simt::memory_order_relaxed);
     pc_pos = pc->q_tail->fetch_add(1, simt::memory_order_acq_rel);
+#endif
 
     cq_dequeue(&qp->cq, cq_pos, &qp->sq, head, head_);
     //sq_dequeue(&qp->sq, sq_pos);
 
 
     //enqueue_second(page_cache_d_t* pc, QueuePair* qp, const uint64_t starting_lba, nvm_cmd_t* cmd, const uint16_t cid, const uint64_t pc_pos, const uint64_t pc_prev_head)
+#ifndef NEXT_V3
     enqueue_second(pc, qp, starting_lba, &cmd, cid, pc_pos, pc_prev_head);
+#endif
 
 
 

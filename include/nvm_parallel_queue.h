@@ -27,6 +27,7 @@
 
 #define NEXT_V1
 #define NEXT_V2
+#define NEXT_V3
 
 __forceinline__ __device__ uint64_t get_id(uint64_t x, uint64_t y) {
     //return (x >> y);
@@ -40,8 +41,17 @@ uint16_t get_cid(nvm_queue_t* sq) {
     bool not_found = true;
     uint16_t id;
 
+#ifdef NEXT_V3
+    uint32_t laneid = lane_id();
+    if (laneid == 0) {
+#endif
+
     do {
+#ifdef NEXT_V3
+        id = sq->cid_ticket.fetch_add(1, simt::memory_order_relaxed) & 2047;
+#else
         id = sq->cid_ticket.fetch_add(1, simt::memory_order_relaxed) & (65535);
+#endif
         //printf("in thread: %p\n", (void*) ((sq->cid)+id));
         uint64_t old = sq->cid[id].val.fetch_or(LOCKED, simt::memory_order_acquire);
         not_found = old == LOCKED;
@@ -49,14 +59,24 @@ uint16_t get_cid(nvm_queue_t* sq) {
         //       printf("still looking\n");
     } while (not_found);
 
+#ifdef NEXT_V3
+    }
+    id = __shfl_sync(0xFFFFFFFF, id, 0);
+    id = id * warpSize + laneid;
+#endif
 
     return id;
-
 }
 
 inline __device__
 void put_cid(nvm_queue_t* sq, uint16_t id) {
+#ifdef NEXT_V3
+    uint32_t laneid = lane_id();
+    if (laneid == 0)
+        sq->cid[id / warpSize].val.store(UNLOCKED, simt::memory_order_release);
+#else
     sq->cid[id].val.store(UNLOCKED, simt::memory_order_release);
+#endif
 }
 
 inline __device__
