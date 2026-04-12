@@ -25,6 +25,9 @@
 #define LOCKED   1
 #define UNLOCKED 0
 
+#define NEXT_V1
+#define NEXT_V2
+
 __forceinline__ __device__ uint64_t get_id(uint64_t x, uint64_t y) {
     //return (x >> y);
     return (x >> y) * 2;  // (x/2^y) *2
@@ -165,23 +168,27 @@ uint32_t move_head_sq(nvm_queue_t* q, uint32_t cur_head) {
 typedef ulonglong4 copy_type;
 
 inline __device__
-uint16_t sq_enqueue(nvm_queue_t* sq, nvm_cmd_t* cmd, simt::atomic<uint64_t, simt::thread_scope_device>* pc_tail =NULL, uint64_t * cur_pc_tail=NULL) {
+uint16_t sq_enqueue(nvm_queue_t* sq, nvm_cmd_t* cmd, simt::atomic<uint64_t, simt::thread_scope_device>* pc_tail = NULL, uint64_t* cur_pc_tail = NULL)
+{
+#ifdef NEXT_V1
+    uint32_t laneid = lane_id();
+#endif
 
-    //uint32_t mask = __activemask();
-    //uint32_t active_count = __popc(mask);
-    //uint32_t leader = __ffs(mask) - 1;
-    //uint32_t lane = lane_id();
     uint32_t ticket;
+    uint32_t pos;
+    uint64_t id;
+
+#ifdef NEXT_V1
+    if (laneid == 0)
+        ticket = sq->in_ticket.fetch_add(warpSize, simt::memory_order_relaxed);
+    ticket = __shfl_sync(0xFFFFFFFF, ticket, 0);
+    ticket += laneid;
+#else
     ticket = sq->in_ticket.fetch_add(1, simt::memory_order_relaxed);
-    /* if (lane == leader) { */
-    /*     ticket = sq->in_ticket.fetch_add(active_count, simt::memory_order_acquire); */
-    /* } */
+#endif
 
-    /* ticket = __shfl_sync(mask, ticket, leader); */
-    /* ticket += __popc(mask & ((1 << lane) - 1)); */
-
-    uint32_t pos = ticket & (sq->qs_minus_1);
-    uint64_t id = get_id(ticket, sq->qs_log2);
+    pos = ticket & sq->qs_minus_1;
+    id = get_id(ticket, sq->qs_log2);
 
     //uint64_t k = 0;
     unsigned int ns = 8;
@@ -281,9 +288,18 @@ uint16_t sq_enqueue(nvm_queue_t* sq, nvm_cmd_t* cmd, simt::atomic<uint64_t, simt
 /*         __nanosleep(100); */
 /* #endif */
 /*     } */
+
+#ifdef NEXT_V2
+    if (laneid == 0) {
+#endif
+
     bool cont = true;
     ns = 8;
+
+#ifndef NEXT_V2
     cont = sq->tail_mark[pos].val.load(simt::memory_order_relaxed) == LOCKED;
+#endif
+
     while(cont) {
         bool new_cont = sq->tail_lock.load(simt::memory_order_relaxed) == LOCKED;
         if (!new_cont) {
@@ -310,7 +326,18 @@ uint16_t sq_enqueue(nvm_queue_t* sq, nvm_cmd_t* cmd, simt::atomic<uint64_t, simt
                 sq->tail_lock.store(UNLOCKED, simt::memory_order_release);
             }
         }
+
+#ifdef NEXT_V2
+        cont = false;
+        for (int i = 0; i < warpSize; i++) {
+            cont = cont || sq->tail_mark[(pos + i) & sq->qs_minus_1].val.load(simt::memory_order_relaxed) == LOCKED;
+            if (cont)
+                break;
+        }
+#else
         cont = sq->tail_mark[pos].val.load(simt::memory_order_relaxed) == LOCKED;
+#endif
+
         if (cont) {
 #if defined(__CUDACC__) && (__CUDA_ARCH__ >= 700 || !defined(__CUDA_ARCH__))
             __nanosleep(ns);
@@ -322,6 +349,9 @@ uint16_t sq_enqueue(nvm_queue_t* sq, nvm_cmd_t* cmd, simt::atomic<uint64_t, simt
 
     }
 
+#ifdef NEXT_V2
+    }
+#endif
 
 
     sq->tickets[pos].val.fetch_add(1, simt::memory_order_acq_rel);
