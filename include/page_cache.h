@@ -2155,6 +2155,20 @@ enum nvme_opcode_nfs {
 };
 #endif
 
+struct cdw3_struct {
+    uint8_t opcode;
+    uint8_t namelen;
+    uint16_t mode;
+};
+
+#define NFS_CMD_SET_CDW3(_cmd, _opcode, _namelen, _mode) \
+    do { \
+        struct cdw3_struct *cdw3 = (struct cdw3_struct *)&(_cmd).dword[3]; \
+        cdw3->opcode = (_opcode); \
+        cdw3->namelen = (_namelen); \
+        cdw3->mode = (_mode); \
+    } while (0)
+
 __device__ uint32_t root_handle;
 
 __device__
@@ -2165,13 +2179,16 @@ void nfs_rw(QueuePair *qp, page_cache_d_t *pc, uint32_t pc_entry,
     nvm_cmd_t cmd;
     uint32_t status, res0;
 
+    assert(offset & 0xfff == 0);
+    assert(count & 0xfff == 0);
+
     // Fill in command
     uint16_t cid = get_cid(&qp->sq);
     memset(&cmd, 0, sizeof(nvm_cmd_t));
-    nvm_cmd_header(&cmd, cid, opcode, qp->nvmNamespace);
+    nvm_cmd_header(&cmd, cid, 0, qp->nvmNamespace);
     cmd.dword[2] = file_handle;
-    cmd.dword[10] = offset;
-    cmd.dword[11] = count;
+    NFS_CMD_SET_CDW3(cmd, opcode, 0, count >> 12);
+    cmd.dword[13] = offset >> 12;
 
     // Set PRP
     uint64_t prp1 = pc->prp1[pc_entry];
@@ -2200,13 +2217,16 @@ void nfs_rw_submit(QueuePair *qp, page_cache_d_t *pc, uint32_t pc_entry,
 {
     nvm_cmd_t cmd;
 
+    assert(offset & 0xfff == 0);
+    assert(count & 0xfff == 0);
+
     // Fill in command
     *cid = get_cid(&qp->sq);
     memset(&cmd, 0, sizeof(nvm_cmd_t));
-    nvm_cmd_header(&cmd, *cid, opcode, qp->nvmNamespace);
+    nvm_cmd_header(&cmd, *cid, 0, qp->nvmNamespace);
     cmd.dword[2] = file_handle;
-    cmd.dword[10] = offset;
-    cmd.dword[11] = count;
+    NFS_CMD_SET_CDW3(cmd, opcode, 0, count >> 12);
+    cmd.dword[13] = offset >> 12;
 
     // Set PRP
     uint64_t prp1 = pc->prp1[pc_entry];
@@ -2243,9 +2263,9 @@ void nfs_lookup(QueuePair *qp, uint32_t *result, uint32_t *file_handle, char *na
     // Fill in command
     uint16_t cid = get_cid(&qp->sq);
     memset(&cmd, 0, sizeof(nvm_cmd_t));
-    nvm_cmd_header(&cmd, cid, nvme_cmd_nfs_lookup, qp->nvmNamespace);
+    nvm_cmd_header(&cmd, cid, 0, qp->nvmNamespace);
     cmd.dword[2] = root_handle;
-    cmd.dword[3] = name_len;
+    NFS_CMD_SET_CDW3(cmd, nvme_cmd_nfs_lookup, name_len, 0);
 
     char *cmd_str = (char *)&cmd.dword[10];
     for (uint32_t i = 0; i < name_len; i++)
@@ -2275,9 +2295,9 @@ void nfs_create(QueuePair *qp, uint32_t *result, uint32_t *file_handle, char *na
     // Fill in command
     uint16_t cid = get_cid(&qp->sq);
     memset(&cmd, 0, sizeof(nvm_cmd_t));
-    nvm_cmd_header(&cmd, cid, nvme_cmd_nfs_create, qp->nvmNamespace);
+    nvm_cmd_header(&cmd, cid, 0, qp->nvmNamespace);
     cmd.dword[2] = root_handle;
-    cmd.dword[3] = (mode << 16) | name_len;
+    NFS_CMD_SET_CDW3(cmd, nvme_cmd_nfs_create, name_len, mode);
 
     char *cmd_str = (char *)&cmd.dword[10];
     for (uint32_t i = 0; i < name_len; i++)
@@ -2325,9 +2345,9 @@ void nfs_batch_create(QueuePair *qp, uint32_t *result, uint32_t *file_handle, ch
     // Fill in command
     uint16_t cid = get_cid(&qp->sq);
     memset(&cmd, 0, sizeof(nvm_cmd_t));
-    nvm_cmd_header(&cmd, cid, nvme_cmd_nfs_create, qp->nvmNamespace);
+    nvm_cmd_header(&cmd, cid, 0, qp->nvmNamespace);
     cmd.dword[2] = root_handle;
-    cmd.dword[3] = (mode << 16) | max_name_len;
+    NFS_CMD_SET_CDW3(cmd, nvme_cmd_nfs_create, max_name_len, mode);
 
     char *cmd_str = (char *)&cmd.dword[10];
     for (uint32_t i = 0; i < max_name_len; i++)
@@ -2362,7 +2382,8 @@ void nfs_mount(QueuePair *qp, uint32_t *result)
     // Fill in command
     uint16_t cid = get_cid(&qp->sq);
     memset(&cmd, 0, sizeof(nvm_cmd_t));
-    nvm_cmd_header(&cmd, cid, nvme_cmd_nfs_mnt, qp->nvmNamespace);
+    nvm_cmd_header(&cmd, cid, 0, qp->nvmNamespace);
+    NFS_CMD_SET_CDW3(cmd, nvme_cmd_nfs_mnt, 0, 0);
 
     // Process command
     uint16_t sq_pos = sq_enqueue(&qp->sq, &cmd);
