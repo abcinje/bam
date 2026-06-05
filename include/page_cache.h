@@ -2179,8 +2179,8 @@ void nfs_rw(QueuePair *qp, page_cache_d_t *pc, uint32_t pc_entry,
     nvm_cmd_t cmd;
     uint32_t status, res0;
 
-    assert(offset & 0xfff == 0);
-    assert(count & 0xfff == 0);
+    assert((offset & 0xfff) == 0);
+    assert((count & 0xfff) == 0);
 
     // Fill in command
     uint16_t cid = get_cid(&qp->sq);
@@ -2217,8 +2217,8 @@ void nfs_rw_submit(QueuePair *qp, page_cache_d_t *pc, uint32_t pc_entry,
 {
     nvm_cmd_t cmd;
 
-    assert(offset & 0xfff == 0);
-    assert(count & 0xfff == 0);
+    assert((offset & 0xfff) == 0);
+    assert((count & 0xfff) == 0);
 
     // Fill in command
     *cid = get_cid(&qp->sq);
