@@ -1691,11 +1691,11 @@ int main(int argc, char *argv[]) {
         cuda_err_chk(cudaFree(vertexVisitCount_d));
         vertexVisitCount_h.clear();
 
-        cuda_err_chk(cudaFree(__filename));
-        cuda_err_chk(cudaFree(__result));
-
         if (edgeList_d)
             cuda_err_chk(cudaFree(edgeList_d));
+
+        cuda_err_chk(cudaFree(__filename));
+        cuda_err_chk(cudaFree(__result));
 
         for (size_t i = 0; i < settings.n_ctrls; i++)
             delete ctrls[i];
