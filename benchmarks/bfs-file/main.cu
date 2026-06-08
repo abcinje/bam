@@ -58,6 +58,9 @@
 
 using error = std::runtime_error;
 using std::string;
+
+#define FILENAME "graph"
+
 //const char* const ctrls_paths[] = {"/dev/libnvm0","/dev/libnvm1",   "/dev/libnvm2", "/dev/libnvm3", "/dev/libnvm4", "/dev/libnvm5", "/dev/libnvm6", "/dev/libnvm7", "/dev/libnvm8", "/dev/libnvm9"};
 const char *const sam_ctrls_paths[] = {"/dev/libnvm0", "/dev/libnvm1", "/dev/libnvm4", "/dev/libnvm9", "/dev/libnvm2", "/dev/libnvm3", "/dev/libnvm5", "/dev/libnvm6", "/dev/libnvm7", "/dev/libnvm8"};
 const char *const intel_ctrls_paths[] = {"/dev/libnvm0", "/dev/libnvm1", "/dev/libnvm2", "/dev/libnvm3", "/dev/libnvm4", "/dev/libnvm5", "/dev/libnvm6", "/dev/libnvm7", "/dev/libnvm8", "/dev/libnvm9"};
@@ -1093,13 +1096,8 @@ int main(int argc, char *argv[]) {
         //prepare from settings
         filename = std::string(settings.input);
 
-        if (settings.src == 0) {
-            total_run = settings.repeat;
-            src = 0;
-        } else {
-            total_run = 2;
-            src = settings.src;
-        }
+        total_run = settings.repeat;
+        src = settings.src;
 
         type = (impl_type)settings.type;
         mem = (mem_type)settings.memalloc;
@@ -1355,6 +1353,49 @@ int main(int argc, char *argv[]) {
         cuda_err_chk(cudaDeviceGetPCIBusId(gdevst, 15, settings.cudaDevice));
         std::cout << "GPUID: " << gdevst << std::endl;
 
+        // Status & file handle (assuming that only one file is accessed for now)
+        uint32_t result, *__result, fh, *__fh;
+        cuda_err_chk(cudaMalloc(&__result, sizeof(uint32_t)));
+        cuda_err_chk(cudaMalloc(&__fh, sizeof(uint32_t)));
+
+        // Mount
+        nfs_mount<<<1, 1>>>(ctrls[0]->d_qps, __result);
+        cuda_err_chk(cudaDeviceSynchronize());
+        cuda_err_chk(cudaMemcpy(&result, __result, sizeof(uint32_t), cudaMemcpyDeviceToHost));
+        if (result) {
+            std::cerr << "Failed to mount" << std::endl;
+            exit(1);
+        }
+
+        // Filename
+        char *__filename;
+        uint32_t filename_len = strlen(FILENAME);
+        if (filename_len > 16) {
+            std::cerr << "Filename too long" << std::endl;
+            exit(1);
+        }
+        cuda_err_chk(cudaMalloc(&__filename, filename_len));
+        cuda_err_chk(cudaMemcpy(__filename, FILENAME, filename_len, cudaMemcpyHostToDevice));
+
+        // Lookup
+        nfs_lookup<<<1, 1>>>(ctrls[0]->d_qps, __result, __fh, __filename, filename_len);
+        cuda_err_chk(cudaDeviceSynchronize());
+        cuda_err_chk(cudaMemcpy(&result, __result, sizeof(uint32_t), cudaMemcpyDeviceToHost));
+        cuda_err_chk(cudaMemcpy(&fh, __fh, sizeof(uint32_t), cudaMemcpyDeviceToHost));
+        if (result == 0) {
+            std::cout << "File found: " << FILENAME << " (handle " << fh << ')' << std::endl;
+        } else if (result == ENOENT) {
+            std::cout << "File not found: " << FILENAME << std::endl;
+            exit(1);
+        } else {
+            std::cerr << "Failed to lookup: errno " << result << std::endl;
+            exit(1);
+        }
+
+        // Real (unpadded) size of the edge data on the device file. Page-cache reads
+        // at/beyond this offset return a zero page instead of touching the device.
+        uint64_t file_size = 2147483648; // FIXME: get the real file size
+
         printf("Initialization done.\n");
         fflush(stdout);
 
@@ -1366,7 +1407,7 @@ int main(int argc, char *argv[]) {
         uint32_t *next_frontier_d;
 
         if ((type == BASELINE_PC) || (type == COALESCE_PC) || (type == COALESCE_CHUNK_PC) || (type == FRONTIER_BASELINE_PC) || (type == FRONTIER_COALESCE_PC) || (type == FRONTIER_COALESCE_PTR_PC) || (type == COALESCE_COARSE_PTR_PC) || (type == COALESCE_HASH_PTR_PC) || (type == COALESCE_HASH_COARSE_PTR_PC) || (type == COALESCE_HASH_HALF_PTR_PC) || (type == OPTIMIZED_PC)) {
-            h_pc = new page_cache_t(pc_page_size, pc_pages, settings.cudaDevice, ctrls[0][0], (uint64_t)64, ctrls);
+            h_pc = new page_cache_t(pc_page_size, pc_pages, settings.cudaDevice, ctrls[0][0], (uint64_t)64, ctrls, fh, file_size);
             h_range = new range_t<uint64_t>((uint64_t)0, (uint64_t)edge_count, (uint64_t)(ceil(settings.ofileoffset * 1.0 / pc_page_size)), (uint64_t)n_pages, (uint64_t)0, (uint64_t)pc_page_size, h_pc, settings.cudaDevice); //, (uint8_t*)edgeList_d);
             vec_range[0] = h_range;
             h_array = new array_t<uint64_t>(edge_count, settings.ofileoffset, vec_range, settings.cudaDevice);
@@ -1649,6 +1690,9 @@ int main(int argc, char *argv[]) {
         cuda_err_chk(cudaFree(globalvisitedcount_d));
         cuda_err_chk(cudaFree(vertexVisitCount_d));
         vertexVisitCount_h.clear();
+
+        cuda_err_chk(cudaFree(__filename));
+        cuda_err_chk(cudaFree(__result));
 
         if (edgeList_d)
             cuda_err_chk(cudaFree(edgeList_d));

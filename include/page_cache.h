@@ -69,6 +69,31 @@ enum data_dist_t {REPLICATE = 0, STRIPE = 1};
 #define V_NB 0x02U
 #define V_B 0x03U
 
+#ifndef DEVFS_NVME_OPCODE_NFS
+#define DEVFS_NVME_OPCODE_NFS
+enum nvme_opcode_nfs {
+    nvme_cmd_nfs_symlink    = 0x50,
+    nvme_cmd_nfs_write      = 0x51,
+    nvme_cmd_nfs_read       = 0x52,
+    nvme_cmd_nfs_lookup     = 0x54,
+    nvme_cmd_nfs_mkdir      = 0x55,
+    nvme_cmd_nfs_readdir    = 0x56,
+    nvme_cmd_nfs_access     = 0x58,
+    nvme_cmd_nfs_commit     = 0x59,
+    nvme_cmd_nfs_setattr    = 0x5D,
+    nvme_cmd_nfs_getattr    = 0x5E,
+    nvme_cmd_nfs_create     = 0x60,
+    nvme_cmd_nfs_rename     = 0x61,
+    nvme_cmd_nfs_fsstat     = 0x62,
+    nvme_cmd_nfs_remove     = 0x64,
+    nvme_cmd_nfs_rmdir      = 0x65,
+    nvme_cmd_nfs_readlink   = 0x66,
+    nvme_cmd_nfs_mnt        = 0x68,
+    nvme_cmd_nfs_fsinfo     = 0x6A,
+    nvme_cmd_nfs_umnt       = 0x6C,
+    nvme_cmd_nfs_pathconf   = 0x6E,
+};
+#endif
 
 struct page_cache_t;
 
@@ -538,6 +563,10 @@ struct page_cache_d_t {
 
     uint64_t n_blocks_per_page;
 
+    /* FS-SSD */
+    uint32_t file_handle;
+    uint64_t file_size;   // valid file size in bytes; reads at/beyond this return a zero page
+
     __forceinline__
     __device__
     cache_page_t* get_cache_page(const uint32_t page) const;
@@ -552,6 +581,8 @@ struct page_cache_d_t {
 
 __device__ void read_data(page_cache_d_t* pc, QueuePair* qp, const uint64_t starting_lba, const uint64_t n_blocks, const unsigned long long pc_entry);
 __device__ void write_data(page_cache_d_t* pc, QueuePair* qp, const uint64_t starting_lba, const uint64_t n_blocks, const unsigned long long pc_entry);
+__device__ void nfs_rw(QueuePair *qp, page_cache_d_t *pc, uint32_t pc_entry, uint32_t file_handle, uint8_t opcode, uint64_t offset, uint64_t count,
+                        uint32_t *result, uint32_t *result_count);
 
 __forceinline__
 __device__
@@ -608,7 +639,11 @@ void __flush(page_cache_d_t* pc) {
                 for (ctrl = 0; ctrl < pc->n_ctrls; ctrl++) {
                     Controller* c = pc->d_ctrls[ctrl];
                     uint32_t queue = smid % (c->n_qps);
+#ifdef NFS_BACKEND
+                    nfs_rw((c->d_qps)+queue, pc, page, pc->file_handle, nvme_cmd_nfs_write, ((uint64_t)index*pc->n_blocks_per_page) << 12, (uint64_t)pc->n_blocks_per_page << 12, NULL, NULL);
+#else
                     write_data(pc, (c->d_qps)+queue, (index*pc->n_blocks_per_page), pc->n_blocks_per_page, page);
+#endif
                 }
             }
             else {
@@ -619,7 +654,11 @@ void __flush(page_cache_d_t* pc) {
                 //index = ranges_page_starts[previous_range] + previous_address;
 
 
+#ifdef NFS_BACKEND
+                nfs_rw((c->d_qps)+queue, pc, page, pc->file_handle, nvme_cmd_nfs_write, ((uint64_t)index*pc->n_blocks_per_page) << 12, (uint64_t)pc->n_blocks_per_page << 12, NULL, NULL);
+#else
                 write_data(pc, (c->d_qps)+queue, (index*pc->n_blocks_per_page), pc->n_blocks_per_page, page);
+#endif
             }
 
             pc->ranges[previous_range][previous_address].state.fetch_and(~DIRTY);
@@ -694,7 +733,7 @@ struct page_cache_t {
 
     }
 
-    page_cache_t(const uint64_t ps, const uint64_t np, const uint32_t cudaDevice, const Controller& ctrl, const uint64_t max_range, const std::vector<Controller*>& ctrls) {
+    page_cache_t(const uint64_t ps, const uint64_t np, const uint32_t cudaDevice, const Controller& ctrl, const uint64_t max_range, const std::vector<Controller*>& ctrls, uint32_t file_handle = (uint32_t)-1, uint64_t file_size = (uint64_t)-1) {
 
         ctrl_counter_buf = createBuffer(sizeof(simt::atomic<uint64_t, simt::thread_scope_device>), cudaDevice);
         q_head_buf = createBuffer(sizeof(simt::atomic<uint64_t, simt::thread_scope_device>), cudaDevice);
@@ -864,6 +903,9 @@ struct page_cache_t {
             pdt.prps = true;
         }
 
+        /* FS-SSD */
+        pdt.file_handle = file_handle;
+        pdt.file_size = file_size;
 
         pc_buff = createBuffer(sizeof(page_cache_d_t), cudaDevice);
         d_pc_ptr = (page_cache_d_t*)pc_buff.get();
@@ -1153,7 +1195,19 @@ uint64_t range_d_t<T>::acquire_page(const size_t pg, const uint32_t count, const
                 //uint32_t queue = c->queue_counter.fetch_add(1, simt::memory_order_relaxed) % (c->n_qps);
                 //uint32_t queue = ((sm_id * 64) + warp_id()) % (c->n_qps);
                 read_io_cnt.fetch_add(1, simt::memory_order_relaxed);
+#ifdef NFS_BACKEND
+                uint64_t nfs_offset = ((uint64_t)b_page * cache.n_blocks_per_page) << 12;
+                if (nfs_offset >= cache.file_size) {
+                    // Beyond EOF: synthesize a zero-filled page without touching the device
+                    uint64_t* zp = (uint64_t*)(cache.base_addr + (uint64_t)page_trans * cache.page_size);
+                    for (uint64_t k = 0; k < (cache.page_size / sizeof(uint64_t)); k++)
+                        zp[k] = 0;
+                } else {
+                    nfs_rw((c->d_qps)+queue, &cache, page_trans, cache.file_handle, nvme_cmd_nfs_read, nfs_offset, (uint64_t)cache.n_blocks_per_page << 12, NULL, NULL);
+                }
+#else
                 read_data(&cache, (c->d_qps)+queue, ((b_page)*cache.n_blocks_per_page), cache.n_blocks_per_page, page_trans);
+#endif
                 //page_addresses[index].store(page_trans, simt::memory_order_release);
                 pages[index].offset = page_trans;
                 // while (cache.page_translation[global_page].load(simt::memory_order_acquire) != page_trans)
@@ -1847,7 +1901,11 @@ uint32_t page_cache_d_t::find_slot(uint64_t address, uint64_t range_id, const ui
                                     for (ctrl = 0; ctrl < n_ctrls; ctrl++) {
                                         Controller* c = this->d_ctrls[ctrl];
                                         uint32_t queue = queue_ % (c->n_qps);
+#ifdef NFS_BACKEND
+                                        nfs_rw((c->d_qps)+queue, this, page, this->file_handle, nvme_cmd_nfs_write, ((uint64_t)index*this->n_blocks_per_page) << 12, (uint64_t)this->n_blocks_per_page << 12, NULL, NULL);
+#else
                                         write_data(this, (c->d_qps)+queue, (index*this->n_blocks_per_page), this->n_blocks_per_page, page);
+#endif
                                     }
                                 }
                                 else {
@@ -1858,7 +1916,11 @@ uint32_t page_cache_d_t::find_slot(uint64_t address, uint64_t range_id, const ui
                                     //index = ranges_page_starts[previous_range] + previous_address;
 
 
+#ifdef NFS_BACKEND
+                                    nfs_rw((c->d_qps)+queue, this, page, this->file_handle, nvme_cmd_nfs_write, ((uint64_t)index*this->n_blocks_per_page) << 12, (uint64_t)this->n_blocks_per_page << 12, NULL, NULL);
+#else
                                     write_data(this, (c->d_qps)+queue, (index*this->n_blocks_per_page), this->n_blocks_per_page, page);
+#endif
                                 }
                             }
 
@@ -2129,32 +2191,6 @@ inline __device__ void access_data(page_cache_d_t* pc, QueuePair* qp, const uint
 #define NFS_DEBUG(fmt, args...)
 // #define NFS_DEBUG(fmt, args...) printf(COLOR_CYAN fmt COLOR_NONE, ##args)
 
-#ifndef DEVFS_NVME_OPCODE_NFS
-#define DEVFS_NVME_OPCODE_NFS
-enum nvme_opcode_nfs {
-    nvme_cmd_nfs_symlink    = 0x50,
-    nvme_cmd_nfs_write      = 0x51,
-    nvme_cmd_nfs_read       = 0x52,
-    nvme_cmd_nfs_lookup     = 0x54,
-    nvme_cmd_nfs_mkdir      = 0x55,
-    nvme_cmd_nfs_readdir    = 0x56,
-    nvme_cmd_nfs_access     = 0x58,
-    nvme_cmd_nfs_commit     = 0x59,
-    nvme_cmd_nfs_setattr    = 0x5D,
-    nvme_cmd_nfs_getattr    = 0x5E,
-    nvme_cmd_nfs_create     = 0x60,
-    nvme_cmd_nfs_rename     = 0x61,
-    nvme_cmd_nfs_fsstat     = 0x62,
-    nvme_cmd_nfs_remove     = 0x64,
-    nvme_cmd_nfs_rmdir      = 0x65,
-    nvme_cmd_nfs_readlink   = 0x66,
-    nvme_cmd_nfs_mnt        = 0x68,
-    nvme_cmd_nfs_fsinfo     = 0x6A,
-    nvme_cmd_nfs_umnt       = 0x6C,
-    nvme_cmd_nfs_pathconf   = 0x6E,
-};
-#endif
-
 struct cdw3_struct {
     uint8_t opcode;
     uint8_t namelen;
@@ -2173,12 +2209,13 @@ __device__ uint32_t root_handle;
 
 __device__
 void nfs_rw(QueuePair *qp, page_cache_d_t *pc, uint32_t pc_entry,
-        uint32_t file_handle, uint8_t opcode, uint32_t offset, uint32_t count,
+        uint32_t file_handle, uint8_t opcode, uint64_t offset, uint64_t count,
         uint32_t *result, uint32_t *result_count)
 {
     nvm_cmd_t cmd;
     uint32_t status, res0;
 
+    assert(file_handle != (uint32_t)-1);
     assert((offset & 0xfff) == 0);
     assert((count & 0xfff) == 0);
 
@@ -2205,18 +2242,21 @@ void nfs_rw(QueuePair *qp, page_cache_d_t *pc, uint32_t pc_entry,
     put_cid(&qp->sq, cid);
 
     // Set results
-    *result = status;
-    *result_count = res0 & 0x7FFFFFFF;  // Ignore the EOF bit
+    if (result && result_count) {
+        *result = status;
+        *result_count = res0 & 0x7FFFFFFF;  // Ignore the EOF bit
 
-    NFS_DEBUG("rw(0x%x): file(%u) offset(%u) count(%u) res(%u) res_count(%u)\n", opcode, file_handle, offset, count, *result, *result_count);
+        NFS_DEBUG("rw(0x%x): file(%u) offset(%lu) count(%lu) res(%u) res_count(%u)\n", opcode, file_handle, offset, count, *result, *result_count);
+    }
 }
 
 __device__
 void nfs_rw_submit(QueuePair *qp, page_cache_d_t *pc, uint32_t pc_entry,
-        uint16_t *cid, uint32_t file_handle, uint8_t opcode, uint32_t offset, uint32_t count)
+        uint16_t *cid, uint32_t file_handle, uint8_t opcode, uint64_t offset, uint64_t count)
 {
     nvm_cmd_t cmd;
 
+    assert(file_handle != (uint32_t)-1);
     assert((offset & 0xfff) == 0);
     assert((count & 0xfff) == 0);
 

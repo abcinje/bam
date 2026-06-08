@@ -29,7 +29,8 @@ int nvm_admin_ns_info(nvm_aq_ref ref,                 // AQ pair reference
                       struct nvm_ns_info* info,       // NVM namespace information
                       uint32_t ns_id,                 // Namespace identifier
                       void* buffer,                   // Temporary buffer (must be at least 4 KB)
-                      uint64_t ioaddr);               // Bus address of buffer as seen by controller
+                      uint64_t ioaddr,                // Bus address of buffer as seen by controller
+                      bool lbaf_4k = false);
 
 
 

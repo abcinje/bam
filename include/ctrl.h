@@ -108,7 +108,11 @@ static void initializeController(struct Controller& ctrl, uint32_t ns_id)
     }
 
     // Identify namespace
+#ifdef NFS_BACKEND
+    status = nvm_admin_ns_info(ctrl.aq_ref, &ctrl.ns, ns_id, NVM_DMA_OFFSET(ctrl.aq_mem, 2), ctrl.aq_mem->ioaddrs[2], true);
+#else
     status = nvm_admin_ns_info(ctrl.aq_ref, &ctrl.ns, ns_id, NVM_DMA_OFFSET(ctrl.aq_mem, 2), ctrl.aq_mem->ioaddrs[2]);
+#endif
     if (!nvm_ok(status))
     {
         throw error(nvm_strerror(status));
