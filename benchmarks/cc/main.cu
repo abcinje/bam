@@ -1407,7 +1407,7 @@ int main(int argc, char *argv[]) {
             //free(winnerList_h);
         }
 
-        for(int titr=0; titr<2; titr+=1){
+        for(int titr=0; titr<1; titr+=1){
             iter = 0;
             cuda_err_chk(cudaEventRecord(start, 0));
             // printf("*****baseaddr: %p\n", h_pc->pdt.base_addr);

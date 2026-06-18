@@ -1199,14 +1199,8 @@ int main(int argc, char *argv[]) {
          //prepare from settings
          filename = std::string(settings.input); 
 
-         if(settings.src == 0) {
-                 total_run = settings.repeat; 
-                 src = 0;
-         }
-         else {
-                 total_run = 2; 
-                 src = settings.src; 
-         }
+         total_run = settings.repeat;
+         src = settings.src;
 
          type = (impl_type) settings.type; 
          mem = (mem_type) settings.memalloc; 
@@ -1722,6 +1716,7 @@ int main(int argc, char *argv[]) {
 
                  iter++;
                  level++;
+                 printf("level: %d\n", level);
 
                  cuda_err_chk(cudaMemcpy(&changed_h, changed_d, sizeof(uint64_t), cudaMemcpyDeviceToHost));
                  //auto end = std::chrono::system_clock::now();
