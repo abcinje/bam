@@ -11,3 +11,5 @@ find_package (CUDA 8.0 REQUIRED)
 make_benchmark (cc-file-benchmark-module cc-file-bench "main.cu")
 
 make_benchmark_choice (cc-file-benchmark cc-file-benchmark-smartio cc-file-benchmark-module)
+
+target_compile_definitions(cc-file-benchmark-module PRIVATE NFS_BACKEND)
