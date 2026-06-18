@@ -1358,6 +1358,11 @@ int main(int argc, char *argv[]) {
         cuda_err_chk(cudaMalloc(&__result, sizeof(uint32_t)));
         cuda_err_chk(cudaMalloc(&__fh, sizeof(uint32_t)));
 
+        struct timespec nfs_init_ts;
+        double nfs_init_begin, nfs_init_end;
+        clock_gettime(CLOCK_MONOTONIC, &nfs_init_ts);
+        nfs_init_begin = nfs_init_ts.tv_sec * 1000.0 + nfs_init_ts.tv_nsec / 1000000.0;
+
         // Mount
         nfs_mount<<<1, 1>>>(ctrls[0]->d_qps, __result);
         cuda_err_chk(cudaDeviceSynchronize());
@@ -1395,6 +1400,11 @@ int main(int argc, char *argv[]) {
         // Real (unpadded) size of the edge data on the device file. Page-cache reads
         // at/beyond this offset return a zero page instead of touching the device.
         uint64_t file_size = 2147483648; // FIXME: get the real file size
+
+        cuda_err_chk(cudaDeviceSynchronize());
+        clock_gettime(CLOCK_MONOTONIC, &nfs_init_ts);
+        nfs_init_end = nfs_init_ts.tv_sec * 1000.0 + nfs_init_ts.tv_nsec / 1000000.0;
+        printf("nfs_init: %.3f ms\n", nfs_init_end - nfs_init_begin);
 
         printf("Initialization done.\n");
         fflush(stdout);
@@ -1639,6 +1649,7 @@ int main(int argc, char *argv[]) {
 
                 iter++;
                 level++;
+                printf("level: %d\n", level);
 
                 cuda_err_chk(cudaMemcpy(&changed_h, changed_d, sizeof(uint64_t), cudaMemcpyDeviceToHost));
                 //auto end = std::chrono::system_clock::now();
