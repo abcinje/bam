@@ -2224,7 +2224,7 @@ void nfs_rw(QueuePair *qp, page_cache_d_t *pc, uint32_t pc_entry,
     memset(&cmd, 0, sizeof(nvm_cmd_t));
     nvm_cmd_header(&cmd, cid, 0, qp->nvmNamespace);
     cmd.dword[2] = file_handle;
-    NFS_CMD_SET_CDW3(cmd, opcode, 0, count >> 12);
+    NFS_CMD_SET_CDW3(cmd, opcode, count >> 12, 0);
     cmd.dword[13] = offset >> 12;
 
     // Set PRP
@@ -2265,7 +2265,7 @@ void nfs_rw_submit(QueuePair *qp, page_cache_d_t *pc, uint32_t pc_entry,
     memset(&cmd, 0, sizeof(nvm_cmd_t));
     nvm_cmd_header(&cmd, *cid, 0, qp->nvmNamespace);
     cmd.dword[2] = file_handle;
-    NFS_CMD_SET_CDW3(cmd, opcode, 0, count >> 12);
+    NFS_CMD_SET_CDW3(cmd, opcode, count >> 12, 0);
     cmd.dword[13] = offset >> 12;
 
     // Set PRP
