@@ -2029,11 +2029,29 @@ inline __device__ void read_data(page_cache_d_t* pc, QueuePair* qp, const uint64
     nvm_cmd_data_ptr(&cmd, prp1, prp2);
     nvm_cmd_rw_blks(&cmd, starting_lba, n_blocks);
     uint16_t sq_pos = sq_enqueue(&qp->sq, &cmd);
+
+#ifdef NEXT_LATENCY
+    // Sample latency in ns (submit -> poll success) with 1/N probability.
+    const unsigned long long LAT_SAMPLE_N = 1000;
+    unsigned long long lat_t0;
+    asm volatile("mov.u64 %0, %%globaltimer;" : "=l"(lat_t0));
+    bool lat_sample = (lat_t0 % LAT_SAMPLE_N) == 0;
+#endif
+
     uint32_t head, head_;
     uint64_t pc_pos;
     uint64_t pc_prev_head;
 
     uint32_t cq_pos = cq_poll(&qp->cq, cid, &head, &head_);
+
+#ifdef NEXT_LATENCY
+    unsigned long long lat_ns = 0;
+    if (lat_sample) {
+        unsigned long long lat_t1;
+        asm volatile("mov.u64 %0, %%globaltimer;" : "=l"(lat_t1));
+        lat_ns = lat_t1 - lat_t0;
+    }
+#endif
 
 #ifndef NEXT_V3
     qp->cq.tail.fetch_add(1, simt::memory_order_acq_rel);
@@ -2054,7 +2072,10 @@ inline __device__ void read_data(page_cache_d_t* pc, QueuePair* qp, const uint64
 
     put_cid(&qp->sq, cid);
 
-
+#ifdef NEXT_LATENCY
+    if (lat_sample)
+        printf("%llu\n", lat_ns);
+#endif
 }
 
 
